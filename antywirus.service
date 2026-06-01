@@ -1,0 +1,12 @@
+[Unit]
+Description=antywirus
+
+[Service]
+Restart=always
+RestartSec=1
+#TODO: change once there is something to start
+ExecStart=/usr/bin/antywirus.py
+TimeoutStartSec=420
+
+[Install]
+WantedBy=multi-user.target
