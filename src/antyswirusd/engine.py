@@ -21,9 +21,9 @@ from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
 from antyswirusd.modules import (
     StubHashRepository,
-    StubQuarantine,
-    StubWhitelist,
 )
+from antyswirusd.modules.quarantine import Quarantine
+from antyswirusd.modules.whitelist import Whitelist
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker
 from antyswirusd.scanner import WalkScanner
@@ -48,8 +48,10 @@ class Engine:
         self._config = config
         self._cache = ScanCache(paths.cache_db_path)
         self._hash_repo: Any = StubHashRepository()
-        self._quarantine: Any = StubQuarantine()
-        self._whitelist: Any = StubWhitelist()
+        self._quarantine: Any = Quarantine(
+            paths.state_dir / "quarantine", paths.state_dir / "quarantine.db"
+        )
+        self._whitelist: Any = Whitelist(paths.state_dir / "whitelist.db")
         self._queue = LookupQueue(maxsize=config.queue_size)
         self._workers: list[asyncio.Task[None]] = []
         self._scanner_tasks: list[asyncio.Task[None]] = []
@@ -75,6 +77,8 @@ class Engine:
 
     async def start(self) -> None:
         await self._cache.open()
+        await self._quarantine.open()
+        await self._whitelist.open()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(

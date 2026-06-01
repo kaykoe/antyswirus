@@ -8,7 +8,7 @@ when those modules land.
 """
 
 from antyswirusd.modules.hash_repository import StubHashRepository
-from antyswirusd.modules.quarantine import StubQuarantine
-from antyswirusd.modules.whitelist import StubWhitelist
+from antyswirusd.modules.quarantine import Quarantine
+from antyswirusd.modules.whitelist import Whitelist
 
-__all__ = ["StubHashRepository", "StubQuarantine", "StubWhitelist"]
+__all__ = ["StubHashRepository", "Quarantine", "Whitelist"]
