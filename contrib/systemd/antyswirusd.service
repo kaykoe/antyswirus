@@ -1,0 +1,31 @@
+[Unit]
+Description=antyswirus daemon
+Documentation=https://github.com/anomalyco/opencode
+After=local-fs.target
+ConditionPathExists=/var/lib/antyswirus
+
+[Service]
+Type=forking
+PIDFile=/run/antyswirus/antyswirusd.pid
+ExecStart=/usr/bin/antyswirusd start
+ExecStop=/usr/bin/antyswirusd stop
+ExecReload=/usr/bin/antyswirusd stop && /usr/bin/antyswirusd start
+
+RuntimeDirectory=antyswirus
+StateDirectory=antyswirus
+LogsDirectory=antyswirus
+
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

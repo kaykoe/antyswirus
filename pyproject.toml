@@ -1,11 +1,13 @@
 [project]
 name = "antyswirus"
 version = "0.1.0"
-description = "Add your description here"
+description = "Linux antivirus daemon and CLI"
 readme = "README.md"
 authors = [{ name = "kaykoe" }]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "typer>=0.12.0",
+]
 license-files = ["LICENSE"]
 
 [project.scripts]

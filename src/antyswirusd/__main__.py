@@ -1,6 +1,5 @@
-def main() -> None:
-    print("Hello from antyswirus!")
+from antyswirusd.app import app
 
 
 if __name__ == "__main__":
-    main()
+    app()

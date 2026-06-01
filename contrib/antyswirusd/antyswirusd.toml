@@ -1,0 +1,22 @@
+# antyswirusd configuration
+#
+# Paths the daemon walks on startup. Empty list = no initial walk;
+# the daemon stays idle until a client sends an explicit
+# `antyswirus scan <path>` request.
+scan_roots = []
+
+# Number of lookup worker coroutines.
+worker_count = 4
+
+# Maximum number of pending files in the lookup queue. Producers
+# (the filesystem walker, and in the future a fanotify listener)
+# drop files when the queue is full.
+queue_size = 4096
+
+# Log level for the daemon log: DEBUG, INFO, WARNING, ERROR.
+log_level = "INFO"
+
+# Unix-socket permissions in octal. Default 0o660 lets the root
+# group talk to the daemon; add the user account to that group to
+# let `antyswirus status` work for non-root users.
+socket_mode = 0o660
