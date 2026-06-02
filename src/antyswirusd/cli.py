@@ -148,6 +148,7 @@ def status(ctx: Context) -> None:
             typer.echo(f"workers:           {r.get('workers')}")
             typer.echo(f"queue size:        {r.get('queue_size')}")
             typer.echo(f"active scans:      {r.get('active_scans')}")
+            typer.echo(f"real-time monitor: {r.get('real_time_active')}")
 
     try:
         asyncio.run(_query())

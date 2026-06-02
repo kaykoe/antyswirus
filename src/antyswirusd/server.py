@@ -139,6 +139,7 @@ class IpcServer:
                         "workers": st.workers,
                         "active_scans": st.active_scans,
                         "pending_rescans": st.pending_rescans,
+                        "real_time_active": st.real_time_active,
                     },
                 )
             if command == "scan":
