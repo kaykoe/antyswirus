@@ -164,16 +164,12 @@ class IpcServer:
                 return await self._whitelist_remove(request_id, args)
             if command == "whitelist_list":
                 return await self._whitelist_list(request_id)
-            if command in (
-                "quarantine_list",
-                "quarantine_restore",
-                "quarantine_delete",
-            ):
-                return Response(
-                    id=request_id,
-                    status="error",
-                    error=f"{command} is not implemented yet",
-                )
+            if command == "quarantine_list":
+                return await self._quarantine_list(request_id, args)
+            if command == "quarantine_restore":
+                return await self._quarantine_restore(request_id, args)
+            if command == "quarantine_delete":
+                return await self._quarantine_delete(request_id, args)
             return Response(
                 id=request_id,
                 status="error",
@@ -281,3 +277,102 @@ class IpcServer:
             await write_message(writer, response)
         except (ConnectionResetError, BrokenPipeError):
             pass
+
+    # ------------------------------------------------------------------ #
+    # Quarantine handlers                                                #
+    # ------------------------------------------------------------------ #
+
+    def _coerce_pagination(self, args: dict[str, Any]) -> tuple[int, int] | Response:
+        offset = args.get("offset", 0)
+        limit = args.get("limit", 100)
+        if not isinstance(offset, int) or isinstance(offset, bool):
+            return Response(id="", status="error", error="'offset' must be an integer")
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            return Response(id="", status="error", error="'limit' must be an integer")
+        return offset, limit
+
+    def _coerce_qid(self, args: dict[str, Any], request_id: str) -> str | Response:
+        qid = args.get("id")
+        if not isinstance(qid, str) or not qid:
+            return Response(
+                id=request_id,
+                status="error",
+                error="missing or invalid 'id' argument",
+            )
+        return qid
+
+    async def _quarantine_list(self, request_id: str, args: dict[str, Any]) -> Response:
+        coerced = self._coerce_pagination(args)
+        if isinstance(coerced, Response):
+            return Response(id=request_id, status=coerced.status, error=coerced.error)
+        offset, limit = coerced
+        items = await self._engine.quarantine.list(offset=offset, limit=limit)
+        total = (
+            await self._engine.quarantine.count()
+            if hasattr(self._engine.quarantine, "count")
+            else None
+        )
+        result: dict[str, Any] = {
+            "items": [
+                {
+                    "id": e.id,
+                    "original_path": str(e.original_path),
+                    "quarantined_at": e.quarantined_at,
+                    "verdict": e.verdict.value,
+                    "detail": e.detail,
+                }
+                for e in items
+            ],
+            "offset": offset,
+            "limit": limit,
+        }
+        if total is not None:
+            result["total"] = total
+        return Response(id=request_id, status="ok", result=result)
+
+    async def _quarantine_restore(
+        self, request_id: str, args: dict[str, Any]
+    ) -> Response:
+        qid = self._coerce_qid(args, request_id)
+        if isinstance(qid, Response):
+            return qid
+        try:
+            await self._engine.quarantine.restore(qid)
+        except KeyError:
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"no such quarantine id: {qid}",
+            )
+        except FileExistsError as exc:
+            dest = exc.args[0] if exc.args else "<unknown>"
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"destination already exists: {dest}",
+            )
+        return Response(
+            id=request_id,
+            status="ok",
+            result={"restored": qid},
+        )
+
+    async def _quarantine_delete(
+        self, request_id: str, args: dict[str, Any]
+    ) -> Response:
+        qid = self._coerce_qid(args, request_id)
+        if isinstance(qid, Response):
+            return qid
+        try:
+            await self._engine.quarantine.delete(qid)
+        except KeyError:
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"no such quarantine id: {qid}",
+            )
+        return Response(
+            id=request_id,
+            status="ok",
+            result={"deleted": qid},
+        )

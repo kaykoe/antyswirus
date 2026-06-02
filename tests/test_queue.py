@@ -7,11 +7,12 @@ import threading
 from pathlib import Path
 
 from antyswirusd.cache import ScanCache
-from antyswirusd.modules import StubHashRepository, StubQuarantine
+from antyswirusd.modules import StubHashRepository
+from antyswirusd.quarantine import QuarantineDb
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.whitelist import WhitelistDb
 from antyswirus_lib import Verdict
-from antyswirus_lib.protocols import WhitelistEntry, WhitelistKind
+from antyswirus_lib.protocols import QuarantinedFile, WhitelistEntry, WhitelistKind
 from antyswirus_lib.types import FileFingerprint, HashLookup, ScanResult
 
 
@@ -40,22 +41,28 @@ class _RecordingQuarantine:
         self.calls: list[tuple[Path, ScanResult]] = []
         self._counter = 0
 
+    async def open(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
     async def quarantine(self, path: Path, result: ScanResult) -> str:
         self.calls.append((path, result))
         self._counter += 1
         return f"q{self._counter}"
 
-    async def restore(self, qid, dest):
+    async def restore(self, qid: str) -> None:
         pass
 
-    async def list(self):
+    async def list(self, *, offset: int = 0, limit: int = 100) -> list[QuarantinedFile]:
         return []
 
-    async def delete(self, qid):
+    async def delete(self, qid: str) -> None:
         pass
 
-    async def close(self):
-        pass
+    async def prune(self) -> int:
+        return 0
 
 
 class TestLookupQueue:
@@ -234,13 +241,18 @@ class TestLookupWorker:
             await cache.open()
             wl = WhitelistDb(runtime_paths.whitelist_db_path)
             await wl.open()
+            quarantine = QuarantineDb(
+                runtime_paths.quarantine_dir,
+                runtime_paths.quarantine_db_path,
+            )
+            await quarantine.open()
             try:
                 queue = LookupQueue()
                 worker = LookupWorker(
                     queue,
                     cache,
                     StubHashRepository(),
-                    StubQuarantine(),
+                    quarantine,
                     wl,
                 )
                 task = asyncio.create_task(worker.run())
@@ -253,6 +265,7 @@ class TestLookupWorker:
                     await task
                 assert await cache.is_known(a, _fp(a)) is Verdict.UNKNOWN
             finally:
+                await quarantine.close()
                 await wl.close()
                 await cache.close()
 

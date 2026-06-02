@@ -71,6 +71,8 @@ class ScanCache:
         self._version: str = ""
 
     async def open(self) -> None:
+        if self._db is not None:
+            return
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         db = await aiosqlite.connect(str(self._db_path))
         await db.execute("PRAGMA journal_mode=WAL")

@@ -10,25 +10,26 @@ manage the whitelist and quarantine.
 
 ## Status
 
-This iteration ships the **core engine only**:
+This iteration ships:
 
 - SQLite-backed scan cache keyed on `(dev, inode, mtime_ns, size,
   generation)` so a file is only re-hashed when its fingerprint
   actually changes.
-- Recursive filesystem walker (`os.walk`) that submits
+- Recursive filesystem walker (`os.scandir`) that submits
   fingerprint-mismatched files to an `asyncio.Queue`.
 - A pool of async lookup workers that call the `HashRepository`
   and update the cache / quarantine.
 - Length-prefixed JSON IPC protocol over a Unix socket.
-- Stub implementations of `HashRepository` (returns
-  `Verdict.UNKNOWN`), `Quarantine`, and `Whitelist` so the engine
-  runs end-to-end; real implementations drop in by replacing the
-  stubs in `antyswirusd/modules/`.
+- Real aiosqlite-backed `WhitelistDb` (path + SHA-256 entries,
+  rescan-on-remove) and `QuarantineDb` (move + restore + delete +
+  paginated list + age-and-missing-file prune).
+- A stub `HashRepository` that returns `Verdict.UNKNOWN`; a real
+  one drops in by passing `hash_repo=...` to `Engine`.
 
-The hash-database sync, real quarantine, real whitelist, and
-fanotify-based on-access protection are designed for but not yet
-included. Adding a new scan source (e.g. fanotify) is a single
-file that produces `ScanRequest` and pushes to `LookupQueue`.
+The hash-database sync and fanotify-based on-access protection
+are designed for but not yet included. Adding a new scan source
+(e.g. fanotify) is a single file that produces `ScanRequest` and
+pushes to `LookupQueue`.
 
 ## Layout
 
