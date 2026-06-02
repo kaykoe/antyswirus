@@ -28,6 +28,8 @@ class RuntimePaths:
     pid_path: Path
     cache_db_path: Path
     whitelist_db_path: Path
+    quarantine_db_path: Path
+    quarantine_dir: Path
     log_path: Path
 
     @classmethod
@@ -43,6 +45,8 @@ class RuntimePaths:
             pid_path=runtime / "antyswirusd.pid",
             cache_db_path=state / "scan_cache.db",
             whitelist_db_path=state / "whitelist.db",
+            quarantine_db_path=state / "quarantine.db",
+            quarantine_dir=state / "quarantine",
             log_path=log / "antyswirusd.log",
         )
 
@@ -51,3 +55,4 @@ class RuntimePaths:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True)

@@ -16,6 +16,8 @@ def _kwargs(tmp_path: Path) -> dict:
         pid_path=tmp_path / "r" / "antyswirusd.pid",
         cache_db_path=tmp_path / "s" / "scan_cache.db",
         whitelist_db_path=tmp_path / "s" / "whitelist.db",
+        quarantine_db_path=tmp_path / "s" / "quarantine.db",
+        quarantine_dir=tmp_path / "s" / "quarantine",
         log_path=tmp_path / "l" / "antyswirusd.log",
     )
 
@@ -36,6 +38,8 @@ class TestDefault:
         assert p.pid_path == Path("/run/antyswirus/antyswirusd.pid")
         assert p.cache_db_path == Path("/var/lib/antyswirus/scan_cache.db")
         assert p.whitelist_db_path == Path("/var/lib/antyswirus/whitelist.db")
+        assert p.quarantine_db_path == Path("/var/lib/antyswirus/quarantine.db")
+        assert p.quarantine_dir == Path("/var/lib/antyswirus/quarantine")
         assert p.log_path == Path("/var/log/antyswirus/antyswirusd.log")
 
     def test_env_overrides(self, monkeypatch, tmp_path: Path):
@@ -50,6 +54,8 @@ class TestDefault:
         assert p.pid_path == tmp_path / "r" / "antyswirusd.pid"
         assert p.cache_db_path == tmp_path / "s" / "scan_cache.db"
         assert p.whitelist_db_path == tmp_path / "s" / "whitelist.db"
+        assert p.quarantine_db_path == tmp_path / "s" / "quarantine.db"
+        assert p.quarantine_dir == tmp_path / "s" / "quarantine"
         assert p.log_path == tmp_path / "l" / "antyswirusd.log"
 
 

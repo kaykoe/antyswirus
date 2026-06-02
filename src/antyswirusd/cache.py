@@ -117,6 +117,24 @@ class ScanCache:
     def version(self) -> str:
         return self._version
 
+    async def last_scan_at(self) -> float | None:
+        """Return the largest ``scanned_at`` across all cached rows, or None.
+
+        Used by the IPC ``status`` response to populate the
+        ``last_scan_at`` field for the TUI. A single ``MAX`` query
+        against the (tiny) ``scan_cache`` table is cheap enough to
+        run on every status call.
+        """
+        assert self._db is not None
+        async with self._db.execute("SELECT MAX(scanned_at) FROM scan_cache") as cur:
+            row = await cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        try:
+            return float(row[0])
+        except (TypeError, ValueError):
+            return None
+
     async def is_known(self, path: Path, fp: FileFingerprint) -> Verdict | None:
         """Return the cached verdict for ``path`` if it is still valid, else None."""
         assert self._db is not None

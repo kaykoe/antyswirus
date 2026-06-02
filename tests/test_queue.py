@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 from antyswirusd.cache import ScanCache
-from antyswirusd.modules import StubHashRepository, StubQuarantine
+from antyswirusd.modules import PersistentQuarantine, StubHashRepository
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.whitelist import WhitelistDb
 from antyswirus_lib import Verdict
@@ -234,13 +234,17 @@ class TestLookupWorker:
             await cache.open()
             wl = WhitelistDb(runtime_paths.whitelist_db_path)
             await wl.open()
+            quarantine = PersistentQuarantine(
+                runtime_paths.quarantine_db_path, runtime_paths.quarantine_dir
+            )
+            await quarantine.open()
             try:
                 queue = LookupQueue()
                 worker = LookupWorker(
                     queue,
                     cache,
                     StubHashRepository(),
-                    StubQuarantine(),
+                    quarantine,
                     wl,
                 )
                 task = asyncio.create_task(worker.run())
@@ -255,6 +259,7 @@ class TestLookupWorker:
             finally:
                 await wl.close()
                 await cache.close()
+                await quarantine.close()
 
         asyncio.run(go())
 

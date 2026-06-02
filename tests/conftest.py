@@ -33,6 +33,8 @@ def make_paths(root: Path) -> RuntimePaths:
         pid_path=runtime_dir / "antyswirusd.pid",
         cache_db_path=state_dir / "scan_cache.db",
         whitelist_db_path=state_dir / "whitelist.db",
+        quarantine_db_path=state_dir / "quarantine.db",
+        quarantine_dir=state_dir / "quarantine",
         log_path=log_dir / "antyswirusd.log",
     )
 

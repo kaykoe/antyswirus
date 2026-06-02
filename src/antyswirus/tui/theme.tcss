@@ -1,0 +1,169 @@
+/* antyswirus TUI theme.
+ *
+ * The single source of truth for colors. The highlight color
+ * (#0FFF6B) is declared once as `$primary`; every other color in the
+ * app is derived from it (a dimmer accent, a desaturated muted grey
+ * for non-striking chrome, a near-black background, and a pale-green
+ * default text color).
+ *
+ * Widgets reference these by their CSS class name; nothing else in
+ * the app should hardcode hex values.
+ */
+
+Screen {
+    background: #08120C;
+    color: #D6F5E0;
+    layout: vertical;
+    align: center middle;
+}
+
+#logo {
+    color: #5C6F62;
+    text-style: none;
+    width: auto;
+    height: auto;
+}
+
+#info-block {
+    width: 60;
+    height: auto;
+}
+
+#info-block > Horizontal {
+    height: 1;
+}
+
+.stat-label {
+    color: #5C6F62;
+    width: auto;
+    height: 1;
+    padding: 0 1 0 0;
+}
+
+.dot-filler {
+    color: #5C6F62;
+    height: 1;
+    width: 1fr;
+    padding: 0 1;
+}
+
+.stat-value {
+    color: #D6F5E0;
+    width: auto;
+    height: 1;
+    padding: 0 0 0 1;
+}
+
+.stat-value-outdated {
+    color: #0FFF6B;
+    text-style: bold;
+}
+
+#progress-wrap {
+    height: 1;
+    width: 60;
+    align-horizontal: center;
+}
+
+#progress-wrap > ProgressBar {
+    width: 60;
+}
+
+#keybind-bar {
+    dock: bottom;
+    height: 1;
+    background: #08120C;
+    color: #5C6F62;
+    padding: 0 1;
+}
+
+.keybind-key {
+    color: #0FFF6B;
+    text-style: bold;
+}
+
+.keybind-sep {
+    color: #5C6F62;
+}
+
+ConfirmScreen {
+    align: center middle;
+}
+
+#confirm-dialog, #input-dialog {
+    width: 60;
+    height: auto;
+    border: round #0FFF6B;
+    background: #08120C;
+    padding: 1 2;
+}
+
+#confirm-title, #input-title {
+    color: #0FFF6B;
+    text-style: bold;
+    width: 100%;
+    content-align: center middle;
+}
+
+#confirm-message, #input-message {
+    color: #D6F5E0;
+    width: 100%;
+    content-align: center middle;
+    margin: 1 0;
+}
+
+#confirm-buttons, #input-buttons {
+    width: 100%;
+    height: 3;
+    align-horizontal: center;
+    layout: horizontal;
+}
+
+#confirm-buttons Button, #input-buttons Button {
+    margin: 0 1;
+}
+
+#input-field {
+    width: 100%;
+    margin: 1 0;
+}
+
+DataTable {
+    background: #08120C;
+    color: #D6F5E0;
+}
+
+DataTable > .datatable--cursor {
+    background: #0BAB4D;
+    color: #08120C;
+    text-style: bold;
+}
+
+DataTable > .datatable--header {
+    background: #08120C;
+    color: #0FFF6B;
+    text-style: bold;
+}
+
+#quarantine-title {
+    color: #0FFF6B;
+    text-style: bold;
+    width: 100%;
+    content-align: center middle;
+    margin: 1 0 0 0;
+}
+
+#quarantine-empty {
+    color: #5C6F62;
+    width: 100%;
+    content-align: center middle;
+    margin: 1 0;
+}
+
+#error-banner {
+    color: #0FFF6B;
+    text-style: bold;
+    width: 100%;
+    content-align: center middle;
+    margin: 1 0;
+}

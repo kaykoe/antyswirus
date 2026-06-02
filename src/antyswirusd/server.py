@@ -127,7 +127,7 @@ class IpcServer:
     ) -> Response:
         try:
             if command == "status":
-                st = self._engine.status()
+                st = await self._engine.rich_status()
                 return Response(
                     id=request_id,
                     status="ok",
@@ -139,6 +139,8 @@ class IpcServer:
                         "workers": st.workers,
                         "active_scans": st.active_scans,
                         "pending_rescans": st.pending_rescans,
+                        "last_scan_at": st.last_scan_at,
+                        "quarantine_count": st.quarantine_count,
                     },
                 )
             if command == "scan":
@@ -169,11 +171,7 @@ class IpcServer:
                 "quarantine_restore",
                 "quarantine_delete",
             ):
-                return Response(
-                    id=request_id,
-                    status="error",
-                    error=f"{command} is not implemented yet",
-                )
+                return await self._dispatch_quarantine(request_id, command, args)
             return Response(
                 id=request_id,
                 status="error",
@@ -274,6 +272,84 @@ class IpcServer:
                 ]
             },
         )
+
+    async def _dispatch_quarantine(
+        self, request_id: str, command: str, args: dict[str, Any]
+    ) -> Response:
+        try:
+            if command == "quarantine_list":
+                items = await self._engine.quarantine.list()
+                return Response(
+                    id=request_id,
+                    status="ok",
+                    result={
+                        "items": [
+                            {
+                                "id": i.id,
+                                "original_path": str(i.original_path),
+                                "quarantined_at": i.quarantined_at,
+                                "verdict": i.verdict.value,
+                                "detail": i.detail,
+                            }
+                            for i in items
+                        ]
+                    },
+                )
+            if command == "quarantine_restore":
+                qid = args.get("quarantine_id")
+                dest = args.get("dest")
+                if not isinstance(qid, str) or not qid:
+                    return Response(
+                        id=request_id,
+                        status="error",
+                        error="missing or invalid 'quarantine_id' argument",
+                    )
+                if not isinstance(dest, str) or not dest:
+                    return Response(
+                        id=request_id,
+                        status="error",
+                        error="missing or invalid 'dest' argument",
+                    )
+                await self._engine.quarantine.restore(qid, Path(dest))
+                return Response(
+                    id=request_id,
+                    status="ok",
+                    result={"restored": qid, "dest": dest},
+                )
+            if command == "quarantine_delete":
+                qid = args.get("quarantine_id")
+                if not isinstance(qid, str) or not qid:
+                    return Response(
+                        id=request_id,
+                        status="error",
+                        error="missing or invalid 'quarantine_id' argument",
+                    )
+                await self._engine.quarantine.delete(qid)
+                return Response(
+                    id=request_id,
+                    status="ok",
+                    result={"deleted": qid},
+                )
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"unsupported quarantine command: {command!r}",
+            )
+        except FileNotFoundError as exc:
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"not found: {exc.args[0]}",
+            )
+        except KeyError as exc:
+            return Response(
+                id=request_id,
+                status="error",
+                error=f"unknown quarantine id: {exc.args[0]}",
+            )
+        except Exception as exc:
+            log.exception("quarantine command %r failed", command)
+            return Response(id=request_id, status="error", error=str(exc))
 
     @staticmethod
     async def _write(writer: asyncio.StreamWriter, response: Response) -> None:

@@ -42,6 +42,10 @@ class TestStatus:
                 assert resp.result["workers"] == 1
                 assert resp.result["cache_generation"] == 0
                 assert resp.result["active_scans"] == 0
+                # New fields: last_scan_at is None on a fresh daemon,
+                # quarantine_count is 0 because nothing is quarantined.
+                assert resp.result["last_scan_at"] is None
+                assert resp.result["quarantine_count"] == 0
             finally:
                 await engine.stop()
 
@@ -130,16 +134,96 @@ class TestUnknownCommand:
         asyncio.run(go())
 
 
-class TestNotImplementedCommands:
-    @pytest.mark.parametrize(
-        "command, args",
-        [
-            ("quarantine_list", {}),
-            ("quarantine_restore", {"quarantine_id": "q1", "dest": "/tmp/x"}),
-            ("quarantine_delete", {"quarantine_id": "q1"}),
-        ],
-    )
-    def test_returns_not_implemented(self, runtime_paths, command, args):
+class TestQuarantineCommands:
+    def test_quarantine_round_trip(self, runtime_paths, tmp_path):
+        """End-to-end: quarantine, list, restore, delete."""
+
+        async def go():
+            engine = _start_engine(runtime_paths, _config())
+            await engine.start()
+            try:
+                payload = tmp_path / "evil.bin"
+                payload.write_bytes(b"definitely-not-malicious")
+                from antyswirus_lib import ScanResult, Verdict
+
+                qid = await engine.quarantine.quarantine(
+                    payload,
+                    ScanResult(
+                        path=payload,
+                        verdict=Verdict.MALICIOUS,
+                        detail="test",
+                    ),
+                )
+                # Quarantine count via status IPC.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("status")
+                assert resp.result["quarantine_count"] == 1
+
+                # List via IPC.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("quarantine_list")
+                assert resp.status == "ok"
+                items = resp.result["items"]
+                assert len(items) == 1
+                assert items[0]["id"] == qid
+                assert items[0]["original_path"] == str(payload)
+                assert items[0]["verdict"] == "malicious"
+
+                # Restore via IPC.
+                restored = tmp_path / "restored.bin"
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call(
+                        "quarantine_restore",
+                        quarantine_id=qid,
+                        dest=str(restored),
+                    )
+                assert resp.status == "ok"
+                assert resp.result["restored"] == qid
+                assert restored.read_bytes() == b"definitely-not-malicious"
+                assert not (runtime_paths.quarantine_dir / qid).exists()
+
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("status")
+                assert resp.result["quarantine_count"] == 0
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_delete_removes_payload(self, runtime_paths, tmp_path):
+        async def go():
+            engine = _start_engine(runtime_paths, _config())
+            await engine.start()
+            try:
+                payload = tmp_path / "evil.bin"
+                payload.write_bytes(b"x")
+                from antyswirus_lib import ScanResult, Verdict
+
+                qid = await engine.quarantine.quarantine(
+                    payload,
+                    ScanResult(path=payload, verdict=Verdict.MALICIOUS),
+                )
+                assert (runtime_paths.quarantine_dir / qid).exists()
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("quarantine_delete", quarantine_id=qid)
+                assert resp.status == "ok"
+                assert not (runtime_paths.quarantine_dir / qid).exists()
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_restore_unknown_id_returns_error(self, runtime_paths, tmp_path):
         async def go():
             engine = _start_engine(runtime_paths, _config())
             await engine.start()
@@ -147,9 +231,29 @@ class TestNotImplementedCommands:
                 async with await AntyswirusClient.connect(
                     runtime_paths.socket_path
                 ) as c:
-                    resp = await c.call(command, **args)
+                    resp = await c.call(
+                        "quarantine_restore",
+                        quarantine_id="nonexistent",
+                        dest=str(tmp_path / "x"),
+                    )
                 assert resp.status == "error"
-                assert "not implemented" in (resp.error or "").lower()
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_delete_unknown_id_returns_error(self, runtime_paths):
+        async def go():
+            engine = _start_engine(runtime_paths, _config())
+            await engine.start()
+            try:
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call(
+                        "quarantine_delete", quarantine_id="nonexistent"
+                    )
+                assert resp.status == "error"
             finally:
                 await engine.stop()
 

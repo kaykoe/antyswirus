@@ -31,7 +31,7 @@ from typing import Any
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
-from antyswirusd.modules import StubHashRepository, StubQuarantine
+from antyswirusd.modules import PersistentQuarantine, StubHashRepository
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.scanner import WalkScanner
@@ -52,6 +52,8 @@ class EngineStatus:
     workers: int
     active_scans: int
     pending_rescans: int
+    last_scan_at: float | None
+    quarantine_count: int
 
 
 class Engine:
@@ -71,7 +73,9 @@ class Engine:
             hash_repo if hash_repo is not None else StubHashRepository()
         )
         self._quarantine: Any = (
-            quarantine if quarantine is not None else StubQuarantine()
+            quarantine
+            if quarantine is not None
+            else PersistentQuarantine(paths.quarantine_db_path, paths.quarantine_dir)
         )
         self._queue = LookupQueue(maxsize=config.queue_size)
         self._workers: list[asyncio.Task[None]] = []
@@ -102,12 +106,18 @@ class Engine:
         return self._paths
 
     @property
+    def quarantine(self) -> Any:
+        return self._quarantine
+
+    @property
     def rescan_tasks(self) -> set[asyncio.Task[None]]:
         return self._rescan_tasks
 
     async def start(self) -> None:
         await self._cache.open()
         await self._whitelist.open()
+        if hasattr(self._quarantine, "open"):
+            await self._quarantine.open()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(
@@ -236,6 +246,15 @@ class Engine:
         return {"path": str(path), "queued": True}
 
     def status(self) -> EngineStatus:
+        """Return a partial status snapshot with the lazy fields unset.
+
+        This method does not touch the SQLite-backed modules
+        (``cache.last_scan_at`` and ``quarantine.list``) so it can
+        run synchronously from signal handlers, debug log lines, and
+        other places where the event loop is unavailable. The IPC
+        handler uses :meth:`rich_status` instead, which fills those
+        fields.
+        """
         return EngineStatus(
             pid=os.getpid(),
             cache_generation=self._cache.generation,
@@ -244,6 +263,32 @@ class Engine:
             workers=len(self._workers),
             active_scans=len(self._scanner_tasks),
             pending_rescans=len(self._rescan_tasks),
+            last_scan_at=None,
+            quarantine_count=0,
+        )
+
+    async def rich_status(self) -> EngineStatus:
+        """Async variant of :meth:`status` that also fills the lazy fields.
+
+        ``last_scan_at`` requires a SQLite query, and
+        ``quarantine_count`` is computed by calling
+        :meth:`quarantine.list`. Both go through ``aiosqlite`` and
+        are awaited directly; the rest of the snapshot comes from
+        the cheap in-memory state in :meth:`status`.
+        """
+        base = self.status()
+        last_scan_at = await self._cache.last_scan_at()
+        items = await self._quarantine.list()
+        return EngineStatus(
+            pid=base.pid,
+            cache_generation=base.cache_generation,
+            cache_version=base.cache_version,
+            queue_size=base.queue_size,
+            workers=base.workers,
+            active_scans=base.active_scans,
+            pending_rescans=base.pending_rescans,
+            last_scan_at=last_scan_at,
+            quarantine_count=len(items),
         )
 
     # ------------------------------------------------------------------ #
