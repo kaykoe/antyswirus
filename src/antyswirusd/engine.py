@@ -31,13 +31,19 @@ from typing import Any
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
-from antyswirusd.modules import StubHashRepository, StubQuarantine
+from antyswirusd.modules import StubHashRepository
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
+from antyswirusd.quarantine import QuarantineDb
 from antyswirusd.scanner import WalkScanner
 from antyswirusd.server import IpcServer
 from antyswirusd.whitelist import WhitelistDb
-from antyswirus_lib.protocols import Whitelist, WhitelistEntry, WhitelistKind
+from antyswirus_lib.protocols import (
+    Quarantine,
+    Whitelist,
+    WhitelistEntry,
+    WhitelistKind,
+)
 from antyswirus_lib.types import FileFingerprint
 
 log = logging.getLogger(__name__)
@@ -70,8 +76,14 @@ class Engine:
         self._hash_repo: Any = (
             hash_repo if hash_repo is not None else StubHashRepository()
         )
-        self._quarantine: Any = (
-            quarantine if quarantine is not None else StubQuarantine()
+        self._quarantine: Quarantine = (
+            quarantine
+            if quarantine is not None
+            else QuarantineDb(
+                paths.quarantine_dir,
+                paths.quarantine_db_path,
+                max_age_days=config.quarantine_max_age_days,
+            )
         )
         self._queue = LookupQueue(maxsize=config.queue_size)
         self._workers: list[asyncio.Task[None]] = []
@@ -94,6 +106,10 @@ class Engine:
         return self._whitelist
 
     @property
+    def quarantine(self) -> Quarantine:
+        return self._quarantine
+
+    @property
     def config(self) -> Config:
         return self._config
 
@@ -108,6 +124,7 @@ class Engine:
     async def start(self) -> None:
         await self._cache.open()
         await self._whitelist.open()
+        await self._quarantine.open()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(

@@ -20,3 +20,8 @@ log_level = "INFO"
 # group talk to the daemon; add the user account to that group to
 # let `antyswirus status` work for non-root users.
 socket_mode = 0o660
+
+# How long the quarantine keeps entries before ``prune`` evicts
+# them. ``prune`` also drops rows whose quarantined file has
+# vanished from disk, regardless of age.
+quarantine_max_age_days = 14

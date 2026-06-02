@@ -34,11 +34,12 @@ tests/
   test_cache.py              ScanCache: fingerprint, generation, prune, async concurrency
   test_queue.py              LookupQueue + LookupWorker (incl. SHA-256 whitelist short-circuit)
   test_scanner.py            WalkScanner: file/dir/cache filter/permissions
-  test_modules.py            stub HashRepository / Quarantine / Whitelist
+  test_modules.py            StubHashRepository
+  test_quarantine.py         QuarantineDb: schema, move, restore, delete, list, prune
   test_whitelist.py          whitelist integration: path-exclusion in scanner,
                              SHA-256 short-circuit in worker, full IPC round-trip
   test_engine.py             Engine: lifecycle, scan(), status(), cache flow
-  test_server.py             IpcServer: status/scan/unknown/bad-framing/whitelist
+  test_server.py             IpcServer: status/scan/unknown/bad-framing/whitelist/quarantine
   test_integration.py        full pipeline through a real antyswirusd subprocess
 ```
 
@@ -90,13 +91,17 @@ Defined in `pyproject.toml` under `[tool.pytest.ini_options]`:
   fakes (e.g. `_CollectingQueue` in `test_scanner.py`,
   `_RecordingHashRepo` in `test_queue.py`) that exercise the real
   code paths. Mocking the production code itself is discouraged.
-- **aiosqlite connection affinity.** The `ScanCache` holds an
-  aiosqlite `Connection` bound to the event loop that called
-  `open()`. Tests that need to inspect the cache database with a
-  separate stdlib `sqlite3.Connection` (for raw SQL assertions) are
-  fine — SQLite handles concurrent read-only connections through
-  WAL — but a fresh `ScanCache.open()` must be called on the same
-  loop the test is running on.
+- **aiosqlite connection affinity.** `ScanCache`, `WhitelistDb`, and
+  `QuarantineDb` each hold an aiosqlite `Connection` whose worker
+  thread is owned by the event loop that called `open()`. Tests
+  that need to inspect the database with a separate stdlib
+  `sqlite3.Connection` (for raw SQL assertions) are fine — SQLite
+  handles concurrent read-only connections through WAL — but the
+  aiosqlite connection must be `close()`d on the same loop that
+  opened it, otherwise the process hangs at exit waiting for
+  leaked worker threads. The `cache` fixture in `test_cache.py`
+  enforces this with a wrapper that defers `close` into a fresh
+  event loop on teardown.
 - **Resource hygiene.** Every `Engine` / `IpcServer` test wraps
   `start` and `stop` in a `try / finally`. Every subprocess test
   uses `DaemonProcess` which cleans up on teardown.

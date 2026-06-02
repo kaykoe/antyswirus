@@ -6,6 +6,5 @@ cheapest answer that lets the pipeline continue.
 """
 
 from antyswirusd.modules.hash_repository import StubHashRepository
-from antyswirusd.modules.quarantine import StubQuarantine
 
-__all__ = ["StubHashRepository", "StubQuarantine"]
+__all__ = ["StubHashRepository"]

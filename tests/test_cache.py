@@ -18,13 +18,69 @@ def _fp(p: Path) -> FileFingerprint:
 
 
 @pytest.fixture
-def cache(runtime_paths) -> ScanCache:
-    async def go() -> ScanCache:
-        c = ScanCache(runtime_paths.cache_db_path)
-        await c.open()
-        return c
+def cache(runtime_paths):
+    """A cache wrapper that opens a fresh ``ScanCache`` on first async use.
 
-    return asyncio.run(go())
+    The wrapper runs the close in the test's own event loop so the
+    aiosqlite worker thread is owned by that loop and shut down
+    before the test returns.
+    """
+    wrapper = _OpenedCache(runtime_paths.cache_db_path)
+
+    async def teardown() -> None:
+        await wrapper.close()
+
+    yield wrapper
+    # Run the close in a fresh event loop so the aiosqlite connection
+    # bound to whatever loop opened it gets shut down cleanly.
+    try:
+        asyncio.run(teardown())
+    except Exception:
+        pass
+
+
+class _OpenedCache:
+    """Thin wrapper that opens a fresh ``ScanCache`` on first async use."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._inner: ScanCache | None = None
+
+    async def _ensure(self) -> ScanCache:
+        if self._inner is None:
+            c = ScanCache(self._path)
+            await c.open()
+            self._inner = c
+        return self._inner
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    async def record(self, *args, **kwargs):
+        return await (await self._ensure()).record(*args, **kwargs)
+
+    async def is_known(self, *args, **kwargs):
+        return await (await self._ensure()).is_known(*args, **kwargs)
+
+    async def paths_with_hash(self, *args, **kwargs):
+        return await (await self._ensure()).paths_with_hash(*args, **kwargs)
+
+    async def set_generation(self, *args, **kwargs):
+        return await (await self._ensure()).set_generation(*args, **kwargs)
+
+    async def close(self) -> None:
+        if self._inner is not None:
+            await self._inner.close()
+            self._inner = None
+
+    @property
+    def generation(self) -> int:
+        return self._inner.generation if self._inner is not None else 0
+
+    @property
+    def version(self) -> str:
+        return self._inner.version if self._inner is not None else ""
 
 
 class TestOpenClose:
@@ -397,39 +453,6 @@ class TestPathsWithHash:
         asyncio.run(go())
 
 
-def cache_db_path_for(cache: ScanCache) -> Path:
+def cache_db_path_for(cache) -> Path:
     """Helper: read the path the cache was opened on (for raw stdlib SELECTs)."""
-    return Path(cache._db_path)  # type: ignore[attr-defined]
-
-    def test_concurrent_record_and_is_known(self, runtime_paths, scan_root):
-        """A mix of record and is_known calls must serialise without errors."""
-
-        async def go():
-            cache = ScanCache(runtime_paths.cache_db_path)
-            await cache.open()
-            try:
-                files = [
-                    scan_root / "a.txt",
-                    scan_root / "b.txt",
-                    scan_root / "sub" / "c.txt",
-                ]
-                await cache.record(files[0], _fp(files[0]), Verdict.SAFE)
-
-                async def record_one(p: Path) -> None:
-                    await cache.record(p, _fp(p), Verdict.UNKNOWN)
-
-                async def lookup_one(p: Path) -> Verdict | None:
-                    return await cache.is_known(p, _fp(p))
-
-                tasks: list[asyncio.Task[object]] = []
-                for p in files:
-                    tasks.append(asyncio.create_task(record_one(p)))
-                    tasks.append(asyncio.create_task(lookup_one(p)))
-                await asyncio.gather(*tasks)
-                # All writes succeeded and every file is now in the cache.
-                for p in files:
-                    assert await cache.is_known(p, _fp(p)) is not None
-            finally:
-                await cache.close()
-
-        asyncio.run(go())
+    return cache.path

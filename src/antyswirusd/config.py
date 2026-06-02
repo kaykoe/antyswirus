@@ -20,6 +20,7 @@ class Config:
     queue_size: int = 4096
     log_level: str = "INFO"
     socket_mode: int = 0o660
+    quarantine_max_age_days: int = 14
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
@@ -33,4 +34,5 @@ class Config:
             queue_size=int(data.get("queue_size", 4096)),
             log_level=str(data.get("log_level", "INFO")),
             socket_mode=int(data.get("socket_mode", 0o660)),
+            quarantine_max_age_days=int(data.get("quarantine_max_age_days", 14)),
         )

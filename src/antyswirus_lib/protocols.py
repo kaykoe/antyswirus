@@ -57,29 +57,55 @@ class QuarantinedFile:
 class Quarantine(Protocol):
     """Stores files deemed malicious in isolation.
 
-    The engine calls ``quarantine`` whenever a worker produces a
+    The engine calls :meth:`quarantine` whenever a worker produces a
     ``MALICIOUS`` verdict. The other methods are exposed to clients
     over the IPC channel.
+
+    On-quarantine flow: the file is moved into a directory owned
+    ``0o700`` by the daemon, so non-root users cannot reach it. The
+    file's own mode, owner, and group are preserved across the move
+    and come back unchanged on :meth:`restore`.
     """
+
+    async def open(self) -> None:
+        """Open the underlying storage. Idempotent."""
+        ...
+
+    async def close(self) -> None:
+        """Release any resources held by the quarantine."""
+        ...
 
     async def quarantine(self, path: Path, result: ScanResult) -> str:
         """Move ``path`` into the quarantine and return a quarantine id."""
         ...
 
-    async def restore(self, quarantine_id: str, dest: Path) -> None:
-        """Restore a quarantined file to ``dest``."""
+    async def restore(self, quarantine_id: str) -> None:
+        """Restore the quarantined file to its original path and remove the row.
+
+        Refuses (raises ``FileExistsError``) if the original path is
+        now occupied by a different file; the client must move or
+        delete the existing file first.
+        """
         ...
 
-    async def list(self) -> list[QuarantinedFile]:
-        """Return all files currently held in quarantine."""
+    async def list(self, *, offset: int = 0, limit: int = 100) -> list[QuarantinedFile]:
+        """Return a page of quarantined files, oldest first.
+
+        ``limit`` is clamped by the implementation to a sane maximum.
+        """
         ...
 
     async def delete(self, quarantine_id: str) -> None:
-        """Permanently remove a quarantined file."""
+        """Permanently remove a quarantined file and its row."""
         ...
 
-    async def close(self) -> None:
-        """Release any resources held by the quarantine."""
+    async def prune(self) -> int:
+        """Drop rows whose quarantined file is gone or that have aged out.
+
+        Returns the number of rows removed. The implementation
+        decides what "aged out" means (typically a configured number
+        of days).
+        """
         ...
 
 
