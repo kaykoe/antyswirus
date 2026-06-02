@@ -1,4 +1,4 @@
-"""Stub ``Quarantine`` that logs calls and returns a fake id."""
+"""``Quarantine`` that logs calls and returns a fake id."""
 
 from __future__ import annotations
 

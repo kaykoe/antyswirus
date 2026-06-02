@@ -2,14 +2,14 @@
 
 The engine never instantiates these directly. It receives concrete
 implementations in its constructor and calls them through the
-attributes declared here. Swapping a stub for a real implementation
-is a one-line change in ``antyswirusd.engine.Engine``.
+attributes declared here. Swapping an implementation is a one-line
+change in ``antyswirusd.engine.Engine``.
 
-The ``Whitelist`` and ``HashRepository`` Protocols are sync: the
-underlying storage is local SQLite, and the lookups are single-
-statement indexed reads. This keeps the call sites (the scanner
-thread, the worker coroutine) simple — no async wrapping needed
-for in-process SQL.
+All methods are async because the ``Whitelist`` and ``HashRepository``
+back-ends may issue I/O (local SQLite, remote malware-DB service)
+and the engine already runs everything through asyncio. Sync
+implementations can simply return an awaitable that resolves
+immediately.
 """
 
 from __future__ import annotations

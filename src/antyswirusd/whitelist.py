@@ -1,10 +1,7 @@
-"""SQLite-backed ``Whitelist`` implementation.
+"""SQLite-backed :class:`Whitelist` implementation.
 
 A single aiosqlite connection is held for the lifetime of the
-instance and shared between scanner and worker coroutines. The
-:class:`WhitelistDb` is the authoritative whitelist for the
-daemon; a previously-shipped in-memory stub has been removed in
-favour of this real implementation.
+instance and shared between scanner and worker coroutines.
 
 Schema
 ------
@@ -29,8 +26,8 @@ Semantics
   prevents the look-alike-prefix bug: a whitelist of ``/foo`` does
   not match ``/foobar``.
 - ``is_hash_whitelisted(hash)`` is a direct equality check on the
-  SHA-256 entry; the 64-hex-char format is enforced upstream by
-  the IPC server before the row is inserted.
+  SHA-256 entry; the 64-hex-char format is enforced upstream by the
+  IPC server before the row is inserted.
 - ``remove`` is idempotent: it returns ``True`` only when a row was
   actually deleted, so the engine can decide whether a rescan is
   needed.

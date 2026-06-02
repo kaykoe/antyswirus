@@ -1,11 +1,8 @@
-"""Stub ``HashRepository`` that always returns ``Verdict.UNKNOWN``.
+"""``HashRepository`` that always returns ``Verdict.UNKNOWN``.
 
 The repository is path-agnostic — it only sees content hashes. The
 worker is responsible for hashing the file before calling
 ``lookup_by_hash``.
-
-Drop in a real implementation by importing it in ``antyswirusd.engine``
-instead of this stub.
 """
 
 from __future__ import annotations

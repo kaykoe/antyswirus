@@ -326,7 +326,7 @@ class TestPathsWithHash:
         asyncio.run(go())
 
     def test_default_content_hash_is_null(self, cache, scan_root):
-        """Backwards-compatible: record() without content_hash stores NULL."""
+        """``record()`` without ``content_hash`` stores NULL."""
 
         async def go():
             a = scan_root / "a.txt"

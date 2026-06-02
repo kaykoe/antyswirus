@@ -1,23 +1,17 @@
 """Recursive filesystem walker that submits files to the lookup queue.
 
-This is one of potentially many scan sources. A future fanotify
-source will follow the same pattern: produce ``ScanRequest`` and
-push it to the same ``LookupQueue``.
-
 The walker is an iterative DFS over an explicit stack, using
 ``os.scandir``. Before recursing into a directory, the scanner
-asks the ``Whitelist`` whether the directory should be skipped;
-on a match, the entire subtree is dropped (no ``stat``, no cache
-check, no queue submission). Files are never individually checked
-against the path whitelist — only directories are.
+asks the ``Whitelist`` whether the directory should be skipped; on
+a match, the entire subtree is dropped (no ``stat``, no cache check,
+no queue submission). Files are never individually checked against
+the path whitelist — only directories are.
 
-The walker is an async coroutine. ``os.scandir`` itself is sync
-but a single directory listing is microseconds, so we keep it
-inline on the event loop. The cache check is a single SELECT
-through the aiosqlite-backed :class:`ScanCache` and is awaited
-like any other async call. New requests are pushed into the
-``LookupQueue`` via :meth:`put_threadsafe`, which is safe to call
-from coroutines and from arbitrary threads.
+``os.scandir`` is kept inline on the event loop: a single directory
+listing is microseconds. The cache check is awaited through the
+aiosqlite-backed :class:`ScanCache`; new requests are pushed into
+the :class:`LookupQueue` via :meth:`put_threadsafe`, which is safe
+to call from coroutines and from arbitrary threads.
 """
 
 from __future__ import annotations

@@ -251,7 +251,7 @@ class Engine:
     # ------------------------------------------------------------------ #
 
     def schedule_rescan(self, entry: WhitelistEntry) -> None:
-        """Schedule a rescan for the now-unwhitelisted entry.
+        """Schedule a rescan for the just-removed entry.
 
         The task is added to :attr:`rescan_tasks` and the set is
         drained by :meth:`stop`. Fire-and-forget: the caller does

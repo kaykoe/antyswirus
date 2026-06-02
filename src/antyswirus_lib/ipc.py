@@ -18,8 +18,7 @@ Response::
     {"id": "<uuid4>", "status": "ok"|"error",
      "result": <object>, "error": <string|null>}
 
-Server-pushed events (not currently used; reserved for future
-streaming of scan progress) follow the same framing and look like::
+The same framing carries server-pushed events::
 
     {"event": "scan_progress", "data": {...}}
 """

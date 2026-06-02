@@ -1,8 +1,8 @@
 """Bridge between sync producers and the async worker pool, plus the worker itself.
 
-Producers (the in-thread filesystem walker in the scanner, and in
-the future a fanotify loop) push ``ScanRequest`` objects via
-``put_threadsafe``, which is safe to call from any thread.
+Producers (the in-thread filesystem walker in the scanner) push
+``ScanRequest`` objects via :meth:`put_threadsafe`, which is safe to
+call from any thread.
 
 Consumers (``LookupWorker``) pop requests via ``await get()``. The
 queue is closed with ``close()``; once closed, all pending and
@@ -23,10 +23,14 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from antyswirus_lib.hashing import compute_sha256
 from antyswirus_lib.protocols import HashRepository, Quarantine, Whitelist
 from antyswirus_lib.types import FileFingerprint, ScanResult, Verdict
+
+if TYPE_CHECKING:
+    from antyswirusd.cache import ScanCache
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +94,7 @@ class LookupWorker:
     def __init__(
         self,
         queue: LookupQueue,
-        cache,  # ScanCache; imported lazily to avoid cycles in tests
+        cache: "ScanCache",
         hash_repo: HashRepository,
         quarantine: Quarantine,
         whitelist: Whitelist,

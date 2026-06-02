@@ -1,9 +1,4 @@
-"""Tests for the antyswirusd.stub modules.
-
-The whitelist has no stub — the engine uses the real
-``WhitelistDb`` directly. Stub tests for the hash repository and
-quarantine remain here.
-"""
+"""Tests for the antyswirusd.modules package (in-memory module doubles)."""
 
 from __future__ import annotations
 

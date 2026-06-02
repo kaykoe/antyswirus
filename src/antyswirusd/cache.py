@@ -1,4 +1,4 @@
-"""SQLite-backed cache of previously-scanned files.
+"""SQLite-backed cache of scan results.
 
 A file is considered "known" iff a row exists with matching
 ``(dev, inode, mtime_ns, size, generation)``. ``dev + inode`` together
@@ -14,11 +14,11 @@ The cache also records the file's content hash when known, so the
 whitelist-removal path can quickly find every file ever scanned that
 had a particular hash.
 
-The cache is backed by ``aiosqlite`` and is fully async. A single
-``Connection`` is held open for the lifetime of the cache; ``aiosqlite``
-serialises concurrent use from multiple coroutines, so the scanner
-and worker coroutines can share the cache without explicit locking.
-The connection is bound to the event loop that called :meth:`open`;
+The cache is backed by ``aiosqlite``. A single ``Connection`` is held
+open for the lifetime of the cache; ``aiosqlite`` serialises
+concurrent use from multiple coroutines, so the scanner and worker
+coroutines can share the cache without explicit locking. The
+connection is bound to the event loop that called :meth:`open`;
 ``close`` releases it cleanly.
 """
 
@@ -219,8 +219,8 @@ class ScanCache:
 
         Existing rows with a different generation naturally stop
         matching the WHERE clause on the next ``is_known`` call and
-        are re-scanned. Old rows are not deleted; ``prune_missing`` and
-        a future size-based GC can clean them up.
+        are re-scanned. Old rows are not deleted; ``prune_missing``
+        can clean them up.
         """
         assert self._db is not None
         await self._db.execute(
