@@ -1,24 +1,26 @@
 """Stub ``HashRepository`` that always returns ``Verdict.UNKNOWN``.
 
-Lets the engine run end-to-end without a malware database. Drop in
-a real implementation by importing it in ``antyswirusd.engine``
+The repository is path-agnostic — it only sees content hashes. The
+worker is responsible for hashing the file before calling
+``lookup_by_hash``.
+
+Drop in a real implementation by importing it in ``antyswirusd.engine``
 instead of this stub.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from antyswirus_lib.types import ScanResult, Verdict
+from antyswirus_lib.types import HashLookup, Verdict
 
 log = logging.getLogger(__name__)
 
 
 class StubHashRepository:
-    async def lookup(self, path: Path) -> ScanResult:
-        log.debug("stub hash lookup: %s", path)
-        return ScanResult(path=path, verdict=Verdict.UNKNOWN, detail="stub")
+    async def lookup_by_hash(self, content_hash: str) -> HashLookup:
+        log.debug("stub hash lookup: sha256=%s", content_hash)
+        return HashLookup(verdict=Verdict.UNKNOWN, detail="stub")
 
     async def close(self) -> None:
         log.debug("stub hash repository closed")

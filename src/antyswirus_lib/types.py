@@ -52,8 +52,21 @@ class FileFingerprint(NamedTuple):
 
 @dataclass(slots=True)
 class ScanResult:
-    """The result of consulting the hash repository about a single file."""
+    """The final verdict the engine records for a file, with its path attached."""
 
     path: Path
+    verdict: Verdict
+    detail: str | None = None
+
+
+@dataclass(slots=True)
+class HashLookup:
+    """The verdict returned by ``HashRepository.lookup_by_hash``.
+
+    Carries no path: the hash repository is path-agnostic — its only
+    key is the content hash. The worker attaches the originating
+    path when it wraps this in a ``ScanResult``.
+    """
+
     verdict: Verdict
     detail: str | None = None

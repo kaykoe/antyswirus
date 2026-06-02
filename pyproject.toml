@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "kaykoe" }]
 requires-python = ">=3.9"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "typer>=0.12.0",
 ]
 license-files = ["LICENSE"]
@@ -28,4 +29,18 @@ dev = [
     "pyspy>=0.1.1",
     "pytest>=8.4.2",
     "ruff>=0.15.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "error",
+    # subprocess.Popen captures pipes that gc sometimes closes with a
+    # ResourceWarning; these are not test failures.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::ResourceWarning:subprocess",
+]
+markers = [
+    "integration: tests that require a real antyswirusd subprocess",
 ]

@@ -1,12 +1,20 @@
-"""Bridge between sync producers and the async worker pool.
+"""Bridge between sync producers and the async worker pool, plus the worker itself.
 
-Producers (the in-thread ``os.walk`` in the scanner, and in the
-future the in-thread fanotify loop) push ``ScanRequest`` objects via
+Producers (the in-thread filesystem walker in the scanner, and in
+the future a fanotify loop) push ``ScanRequest`` objects via
 ``put_threadsafe``, which is safe to call from any thread.
 
 Consumers (``LookupWorker``) pop requests via ``await get()``. The
 queue is closed with ``close()``; once closed, all pending and
 future ``get`` calls return ``None`` and the workers can exit.
+
+Worker flow per request:
+
+    1. Hash the file (off the event loop via ``asyncio.to_thread``).
+    2. Ask the whitelist whether this content hash is trusted.
+       If yes, record ``WHITELISTED`` and skip the malware-DB call.
+    3. Otherwise, ask the ``HashRepository`` for a verdict by hash.
+    4. Record the verdict in the cache; quarantine on ``MALICIOUS``.
 """
 
 from __future__ import annotations
@@ -16,15 +24,16 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from antyswirus_lib.protocols import HashRepository, Quarantine
-from antyswirus_lib.types import FileFingerprint, Verdict
+from antyswirus_lib.hashing import compute_sha256
+from antyswirus_lib.protocols import HashRepository, Quarantine, Whitelist
+from antyswirus_lib.types import FileFingerprint, ScanResult, Verdict
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class ScanRequest:
-    """A single file that needs to be looked up by the hash repository."""
+    """A single file that needs to be hashed and looked up."""
 
     path: Path
     fingerprint: FileFingerprint
@@ -84,11 +93,13 @@ class LookupWorker:
         cache,  # ScanCache; imported lazily to avoid cycles in tests
         hash_repo: HashRepository,
         quarantine: Quarantine,
+        whitelist: Whitelist,
     ) -> None:
         self._queue = queue
         self._cache = cache
         self._hash_repo = hash_repo
         self._quarantine = quarantine
+        self._whitelist = whitelist
 
     async def run(self) -> None:
         log.debug("worker started")
@@ -107,8 +118,29 @@ class LookupWorker:
             log.debug("worker stopped")
 
     async def _process(self, req: ScanRequest) -> None:
-        result = await self._hash_repo.lookup(req.path)
-        await self._cache.record(req.path, req.fingerprint, result.verdict)
+        try:
+            content_hash = await asyncio.to_thread(compute_sha256, req.path)
+        except FileNotFoundError:
+            log.debug("file vanished before hash: %s", req.path)
+            return
+        except OSError as exc:
+            log.warning("hash failed for %s: %s", req.path, exc)
+            return
+
+        if await self._whitelist.is_hash_whitelisted(content_hash):
+            result = ScanResult(
+                path=req.path,
+                verdict=Verdict.WHITELISTED,
+                detail="hash whitelisted",
+            )
+        else:
+            hit = await self._hash_repo.lookup_by_hash(content_hash)
+            result = ScanResult(path=req.path, verdict=hit.verdict, detail=hit.detail)
+
+        await self._cache.record(
+            req.path, req.fingerprint, result.verdict, content_hash
+        )
+
         if result.verdict is Verdict.MALICIOUS:
             qid = await self._quarantine.quarantine(req.path, result)
             log.warning(

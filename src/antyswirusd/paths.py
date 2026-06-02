@@ -27,6 +27,7 @@ class RuntimePaths:
     socket_path: Path
     pid_path: Path
     cache_db_path: Path
+    whitelist_db_path: Path
     log_path: Path
 
     @classmethod
@@ -41,6 +42,7 @@ class RuntimePaths:
             socket_path=runtime / "antyswirusd.sock",
             pid_path=runtime / "antyswirusd.pid",
             cache_db_path=state / "scan_cache.db",
+            whitelist_db_path=state / "whitelist.db",
             log_path=log / "antyswirusd.log",
         )
 

@@ -1,21 +1,27 @@
 """Recursive filesystem walker that submits files to the lookup queue.
 
-A file is only submitted if its ``(dev, inode, mtime_ns, size)``
-fingerprint is not in the cache (or the cache's generation has
-changed). The cache check is performed synchronously from the
-worker thread that runs ``os.walk`` to avoid hopping back to the
-asyncio loop for every file; the underlying ``sqlite3`` connection
-is opened with ``check_same_thread=False`` and used in autocommit
-mode, so a single ``SELECT`` is safe to share between threads.
-
 This is one of potentially many scan sources. A future fanotify
 source will follow the same pattern: produce ``ScanRequest`` and
 push it to the same ``LookupQueue``.
+
+The walker is an iterative DFS over an explicit stack, using
+``os.scandir``. Before recursing into a directory, the scanner
+asks the ``Whitelist`` whether the directory should be skipped;
+on a match, the entire subtree is dropped (no ``stat``, no cache
+check, no queue submission). Files are never individually checked
+against the path whitelist — only directories are.
+
+The walker is an async coroutine. ``os.scandir`` itself is sync
+but a single directory listing is microseconds, so we keep it
+inline on the event loop. The cache check is a single SELECT
+through the aiosqlite-backed :class:`ScanCache` and is awaited
+like any other async call. New requests are pushed into the
+``LookupQueue`` via :meth:`put_threadsafe`, which is safe to call
+from coroutines and from arbitrary threads.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from collections.abc import Iterable
@@ -23,6 +29,7 @@ from pathlib import Path
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.queue import LookupQueue, ScanRequest
+from antyswirus_lib.protocols import Whitelist
 from antyswirus_lib.types import FileFingerprint
 
 log = logging.getLogger(__name__)
@@ -36,40 +43,71 @@ class WalkScanner:
         roots: Iterable[Path],
         cache: ScanCache,
         queue: LookupQueue,
+        whitelist: Whitelist,
         *,
         follow_symlinks: bool = False,
     ) -> None:
         self._roots: list[Path] = [Path(r) for r in roots]
         self._cache = cache
         self._queue = queue
+        self._whitelist = whitelist
         self._follow_symlinks = follow_symlinks
 
     async def run(self) -> None:
-        loop = asyncio.get_running_loop()
         for root in self._roots:
             log.info("scanning %s", root)
-            await loop.run_in_executor(None, self._walk_and_submit, root)
+            await self._walk_and_submit(root)
         log.info("walk complete over %d root(s)", len(self._roots))
 
-    def _walk_and_submit(self, root: Path) -> None:
+    async def _walk_and_submit(self, root: Path) -> None:
         try:
             if root.is_file():
-                self._check_and_submit(root)
+                await self._check_and_submit(root)
                 return
-            if root.is_dir():
-                for dirpath, _dirnames, filenames in os.walk(
-                    root, followlinks=self._follow_symlinks
-                ):
-                    for name in filenames:
-                        self._check_and_submit(Path(dirpath) / name)
-                return
-            log.warning("skipping non-existent path %s", root)
-        except PermissionError as exc:
-            log.warning("permission denied walking %s: %s", root, exc)
         except OSError as exc:
-            log.error("error walking %s: %s", root, exc)
+            log.warning("cannot stat %s: %s", root, exc)
+            return
 
-    def _check_and_submit(self, path: Path) -> None:
+        if not root.exists():
+            log.warning("skipping non-existent path %s", root)
+            return
+
+        await self._walk_recursive(root)
+
+    async def _walk_recursive(self, root: Path) -> None:
+        stack: list[Path] = [root]
+        while stack:
+            current = stack.pop()
+            if await self._whitelist.matches_directory(current):
+                log.debug("whitelisted directory, skipping: %s", current)
+                continue
+            try:
+                with os.scandir(current) as it:
+                    for entry in it:
+                        try:
+                            is_file = entry.is_file(
+                                follow_symlinks=self._follow_symlinks
+                            )
+                            is_dir = entry.is_dir(follow_symlinks=self._follow_symlinks)
+                        except OSError as exc:
+                            log.debug("stat failed for %s: %s", entry.path, exc)
+                            continue
+                        if is_file:
+                            await self._check_and_submit(Path(entry.path))
+                        elif is_dir:
+                            stack.append(Path(entry.path))
+            except PermissionError as exc:
+                log.warning("permission denied: %s (%s)", current, exc)
+            except NotADirectoryError:
+                # `current` was a non-directory (e.g. a symlink target) when scandir tried it.
+                pass
+            except FileNotFoundError:
+                # The directory was removed between stack push and pop.
+                pass
+            except OSError as exc:
+                log.warning("error walking %s: %s", current, exc)
+
+    async def _check_and_submit(self, path: Path) -> None:
         try:
             st = path.stat()
         except FileNotFoundError:
@@ -82,7 +120,7 @@ class WalkScanner:
             return
 
         fp = FileFingerprint.from_stat(st)
-        verdict = self._cache._is_known_sync(path, fp)
+        verdict = await self._cache.is_known(path, fp)
         if verdict is not None:
             log.debug("cache hit: %s -> %s", path, verdict)
             return

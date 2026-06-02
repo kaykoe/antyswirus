@@ -48,6 +48,15 @@ def is_pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True  # exists, just not ours
+    # `kill(0)` succeeds for zombies too; consult /proc to distinguish.
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("State:"):
+                    state = line.split()[1].rstrip(")")
+                    return state not in ("Z",)
+    except FileNotFoundError:
+        return False
     return True
 
 

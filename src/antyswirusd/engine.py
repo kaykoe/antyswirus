@@ -3,31 +3,42 @@
 Lifecycle::
 
     engine = Engine(paths, config)
-    await engine.start()          # opens cache, spawns workers, spawns scanners,
-                                  # starts the IPC server
+    await engine.start()          # opens cache + whitelist, spawns workers,
+                                  # spawns scanners, starts the IPC server
     await engine.wait_running()   # blocks until shutdown is requested
-    await engine.stop()           # cancels tasks, drains queue, closes modules
+    await engine.stop()           # stops server, drains rescan tasks,
+                                  # drains queue, closes modules
+
+Whitelist rescan
+----------------
+
+``whitelist_remove`` returns to the client as soon as the entry is
+deleted and the rescan is *scheduled*. The actual rescan runs as a
+background task tracked in :attr:`_rescan_tasks`; :meth:`stop` waits
+on this set so the daemon never exits with a HASH rescan still in
+flight (the user-visible contract is that "shutting down" is
+postponed until rescans drain).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
-from antyswirusd.modules import (
-    StubHashRepository,
-    StubQuarantine,
-    StubWhitelist,
-)
+from antyswirusd.modules import StubHashRepository, StubQuarantine
 from antyswirusd.paths import RuntimePaths
-from antyswirusd.queue import LookupQueue, LookupWorker
+from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.scanner import WalkScanner
 from antyswirusd.server import IpcServer
+from antyswirusd.whitelist import WhitelistDb
+from antyswirus_lib.protocols import Whitelist, WhitelistEntry, WhitelistKind
+from antyswirus_lib.types import FileFingerprint
 
 log = logging.getLogger(__name__)
 
@@ -40,19 +51,32 @@ class EngineStatus:
     queue_size: int
     workers: int
     active_scans: int
+    pending_rescans: int
 
 
 class Engine:
-    def __init__(self, paths: RuntimePaths, config: Config) -> None:
+    def __init__(
+        self,
+        paths: RuntimePaths,
+        config: Config,
+        *,
+        hash_repo: Any | None = None,
+        quarantine: Any | None = None,
+    ) -> None:
         self._paths = paths
         self._config = config
         self._cache = ScanCache(paths.cache_db_path)
-        self._hash_repo: Any = StubHashRepository()
-        self._quarantine: Any = StubQuarantine()
-        self._whitelist: Any = StubWhitelist()
+        self._whitelist: Whitelist = WhitelistDb(paths.whitelist_db_path)
+        self._hash_repo: Any = (
+            hash_repo if hash_repo is not None else StubHashRepository()
+        )
+        self._quarantine: Any = (
+            quarantine if quarantine is not None else StubQuarantine()
+        )
         self._queue = LookupQueue(maxsize=config.queue_size)
         self._workers: list[asyncio.Task[None]] = []
         self._scanner_tasks: list[asyncio.Task[None]] = []
+        self._rescan_tasks: set[asyncio.Task[None]] = set()
         self._server: IpcServer | None = None
         self._shutdown = asyncio.Event()
         self._stopped = asyncio.Event()
@@ -66,6 +90,10 @@ class Engine:
         return self._queue
 
     @property
+    def whitelist(self) -> Whitelist:
+        return self._whitelist
+
+    @property
     def config(self) -> Config:
         return self._config
 
@@ -73,8 +101,13 @@ class Engine:
     def paths(self) -> RuntimePaths:
         return self._paths
 
+    @property
+    def rescan_tasks(self) -> set[asyncio.Task[None]]:
+        return self._rescan_tasks
+
     async def start(self) -> None:
         await self._cache.open()
+        await self._whitelist.open()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(
@@ -82,6 +115,7 @@ class Engine:
                     self._cache,
                     self._hash_repo,
                     self._quarantine,
+                    self._whitelist,
                 ).run(),
                 name=f"lookup-worker-{i}",
             )
@@ -94,6 +128,7 @@ class Engine:
                         roots=[root],
                         cache=self._cache,
                         queue=self._queue,
+                        whitelist=self._whitelist,
                     ).run(),
                     name=f"scanner-{i}",
                 )
@@ -124,10 +159,15 @@ class Engine:
             return
         self._stopped.set()
         log.info("engine stopping")
+
+        # 1. Stop accepting new IPC requests. Waits for in-flight handler
+        #    tasks to complete; for a whitelist_remove this means the
+        #    handler has scheduled the rescan task and returned.
         if self._server is not None:
             await self._server.stop()
             self._server = None
 
+        # 2. Cancel any external scanner tasks (one-shot scan RPCs).
         for t in self._scanner_tasks:
             t.cancel()
         for t in self._scanner_tasks:
@@ -135,13 +175,22 @@ class Engine:
                 await t
             except (asyncio.CancelledError, Exception):
                 pass
+        self._scanner_tasks.clear()
 
-        # Wait for any in-flight lookups to finish.
+        # 3. Wait for any in-flight rescan tasks. This is the
+        #    "postpone shutdown until HASH rescans drain" hook.
+        if self._rescan_tasks:
+            log.info("waiting for %d in-flight rescan task(s)", len(self._rescan_tasks))
+            await asyncio.gather(*self._rescan_tasks, return_exceptions=True)
+        self._rescan_tasks.clear()
+
+        # 4. Drain the queue (best effort).
         try:
             await asyncio.wait_for(self._queue.join(), timeout=30)
         except asyncio.TimeoutError:
             log.warning("queue did not drain in time; closing anyway")
 
+        # 5. Close workers and modules.
         self._queue.close()
         for w in self._workers:
             w.cancel()
@@ -171,6 +220,7 @@ class Engine:
                 roots=[path],
                 cache=self._cache,
                 queue=self._queue,
+                whitelist=self._whitelist,
             ).run(),
             name=f"scan-{path}",
         )
@@ -187,10 +237,72 @@ class Engine:
 
     def status(self) -> EngineStatus:
         return EngineStatus(
-            pid=__import__("os").getpid(),
+            pid=os.getpid(),
             cache_generation=self._cache.generation,
             cache_version=self._cache.version,
             queue_size=self._queue.qsize(),
             workers=len(self._workers),
             active_scans=len(self._scanner_tasks),
+            pending_rescans=len(self._rescan_tasks),
         )
+
+    # ------------------------------------------------------------------ #
+    # Whitelist rescan machinery                                         #
+    # ------------------------------------------------------------------ #
+
+    def schedule_rescan(self, entry: WhitelistEntry) -> None:
+        """Schedule a rescan for the now-unwhitelisted entry.
+
+        The task is added to :attr:`rescan_tasks` and the set is
+        drained by :meth:`stop`. Fire-and-forget: the caller does
+        not wait for the rescan to complete.
+        """
+        task = asyncio.create_task(
+            self._do_rescan(entry),
+            name=f"rescan-{entry.kind.value}-{entry.value[:16]}",
+        )
+        self._rescan_tasks.add(task)
+        task.add_done_callback(self._rescan_tasks.discard)
+
+    async def _do_rescan(self, entry: WhitelistEntry) -> None:
+        try:
+            if entry.kind is WhitelistKind.PATH:
+                await self._rescan_path(Path(entry.value))
+            elif entry.kind is WhitelistKind.SHA256:
+                await self._rescan_hash(entry.value)
+            else:
+                log.warning("rescan: unknown whitelist kind %r", entry.kind)
+        except Exception:
+            log.exception("rescan failed for %s", entry)
+
+    async def _rescan_path(self, path: Path) -> None:
+        if not path.exists():
+            log.warning("rescan target %s does not exist", path)
+            return
+        scanner = WalkScanner(
+            roots=[path],
+            cache=self._cache,
+            queue=self._queue,
+            whitelist=self._whitelist,
+        )
+        await scanner.run()
+        await self._queue.join()
+
+    async def _rescan_hash(self, content_hash: str) -> None:
+        rows = await self._cache.paths_with_hash(content_hash)
+        if not rows:
+            return
+        log.info(
+            "rescan: re-submitting %d file(s) for hash %s", len(rows), content_hash
+        )
+        for path, _cached_fp in rows:
+            try:
+                st = await asyncio.to_thread(os.stat, path)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                log.debug("rescan: stat failed for %s: %s", path, exc)
+                continue
+            fp = FileFingerprint.from_stat(st)
+            self._queue.put_threadsafe(ScanRequest(path=path, fingerprint=fp))
+        await self._queue.join()

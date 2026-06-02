@@ -10,23 +10,25 @@ Writes go through ``INSERT … ON CONFLICT(path) DO UPDATE`` so a path
 can be re-scanned with a fresh fingerprint without needing to
 ``DELETE`` first.
 
-Threading model: the underlying ``sqlite3`` connection is opened with
-``check_same_thread=False`` and used in autocommit mode. Each
-public method runs a single statement, which is atomic from SQLite's
-point of view, so the connection is safe to share between the
-asyncio loop and the scanner's worker thread. ``prune_missing`` and
-``set_generation`` hold a ``threading.Lock`` because they perform
-multiple statements.
+The cache also records the file's content hash when known, so the
+whitelist-removal path can quickly find every file ever scanned that
+had a particular hash.
+
+The cache is backed by ``aiosqlite`` and is fully async. A single
+``Connection`` is held open for the lifetime of the cache; ``aiosqlite``
+serialises concurrent use from multiple coroutines, so the scanner
+and worker coroutines can share the cache without explicit locking.
+The connection is bound to the event loop that called :meth:`open`;
+``close`` releases it cleanly.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import sqlite3
-import threading
 import time
 from pathlib import Path
+
+import aiosqlite
 
 from antyswirus_lib.types import FileFingerprint, Verdict
 
@@ -35,17 +37,20 @@ log = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scan_cache (
-    path        TEXT PRIMARY KEY,
-    dev         INTEGER NOT NULL,
-    inode       INTEGER NOT NULL,
-    size        INTEGER NOT NULL,
-    mtime_ns    INTEGER NOT NULL,
-    generation  INTEGER NOT NULL,
-    verdict     TEXT    NOT NULL,
-    scanned_at  REAL    NOT NULL
+    path         TEXT PRIMARY KEY,
+    dev          INTEGER NOT NULL,
+    inode        INTEGER NOT NULL,
+    size         INTEGER NOT NULL,
+    mtime_ns     INTEGER NOT NULL,
+    generation   INTEGER NOT NULL,
+    verdict      TEXT    NOT NULL,
+    scanned_at   REAL    NOT NULL,
+    content_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cache_fp
     ON scan_cache(dev, inode, mtime_ns, size, generation);
+CREATE INDEX IF NOT EXISTS idx_cache_hash
+    ON scan_cache(content_hash);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -61,32 +66,29 @@ _DEFAULT_GENERATION = 0
 class ScanCache:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
-        self._lock = threading.Lock()
+        self._db: aiosqlite.Connection | None = None
         self._generation: int = _DEFAULT_GENERATION
         self._version: str = ""
 
     async def open(self) -> None:
-        await asyncio.to_thread(self._open_sync)
-
-    def _open_sync(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(
-            str(self._db_path),
-            isolation_level=None,
-            check_same_thread=False,
+        db = await aiosqlite.connect(str(self._db_path))
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.executescript(_SCHEMA)
+        await db.commit()
+        self._db = db
+        self._generation = await self._read_meta_int(
+            _META_GENERATION, _DEFAULT_GENERATION
         )
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.executescript(_SCHEMA)
-        self._conn = conn
-        self._generation = self._read_meta_int(_META_GENERATION, _DEFAULT_GENERATION)
-        self._version = self._read_meta_str(_META_VERSION, "")
+        self._version = await self._read_meta_str(_META_VERSION, "")
 
-    def _read_meta_int(self, key: str, default: int) -> int:
-        assert self._conn is not None
-        cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
-        row = cur.fetchone()
+    async def _read_meta_int(self, key: str, default: int) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT value FROM meta WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
         if row is None:
             return default
         try:
@@ -94,16 +96,18 @@ class ScanCache:
         except (TypeError, ValueError):
             return default
 
-    def _read_meta_str(self, key: str, default: str) -> str:
-        assert self._conn is not None
-        cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
-        row = cur.fetchone()
+    async def _read_meta_str(self, key: str, default: str) -> str:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT value FROM meta WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
         return default if row is None else str(row[0])
 
     async def close(self) -> None:
-        if self._conn is not None:
-            conn, self._conn = self._conn, None
-            await asyncio.to_thread(conn.close)
+        if self._db is not None:
+            db, self._db = self._db, None
+            await db.close()
 
     @property
     def generation(self) -> int:
@@ -115,11 +119,8 @@ class ScanCache:
 
     async def is_known(self, path: Path, fp: FileFingerprint) -> Verdict | None:
         """Return the cached verdict for ``path`` if it is still valid, else None."""
-        return await asyncio.to_thread(self._is_known_sync, path, fp)
-
-    def _is_known_sync(self, path: Path, fp: FileFingerprint) -> Verdict | None:
-        assert self._conn is not None
-        cur = self._conn.execute(
+        assert self._db is not None
+        async with self._db.execute(
             """
             SELECT verdict FROM scan_cache
             WHERE path = ? AND dev = ? AND inode = ?
@@ -133,8 +134,8 @@ class ScanCache:
                 fp.size,
                 self._generation,
             ),
-        )
-        row = cur.fetchone()
+        ) as cur:
+            row = await cur.fetchone()
         if row is None:
             return None
         try:
@@ -143,24 +144,35 @@ class ScanCache:
             log.warning("cache row for %s has unknown verdict %r", path, row[0])
             return None
 
-    async def record(self, path: Path, fp: FileFingerprint, verdict: Verdict) -> None:
-        await asyncio.to_thread(self._record_sync, path, fp, verdict)
+    async def record(
+        self,
+        path: Path,
+        fp: FileFingerprint,
+        verdict: Verdict,
+        content_hash: str | None = None,
+    ) -> None:
+        """Record (or update) the verdict for ``path``.
 
-    def _record_sync(self, path: Path, fp: FileFingerprint, verdict: Verdict) -> None:
-        assert self._conn is not None
-        self._conn.execute(
+        ``content_hash`` is stored alongside the verdict so that a
+        later ``whitelist_remove`` for a SHA-256 entry can locate
+        every file that was ever scanned with that hash.
+        """
+        assert self._db is not None
+        await self._db.execute(
             """
             INSERT INTO scan_cache(
-                path, dev, inode, size, mtime_ns, generation, verdict, scanned_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                path, dev, inode, size, mtime_ns, generation,
+                verdict, scanned_at, content_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path) DO UPDATE SET
-                dev        = excluded.dev,
-                inode      = excluded.inode,
-                size       = excluded.size,
-                mtime_ns   = excluded.mtime_ns,
-                generation = excluded.generation,
-                verdict    = excluded.verdict,
-                scanned_at = excluded.scanned_at
+                dev          = excluded.dev,
+                inode        = excluded.inode,
+                size         = excluded.size,
+                mtime_ns     = excluded.mtime_ns,
+                generation   = excluded.generation,
+                verdict      = excluded.verdict,
+                scanned_at   = excluded.scanned_at,
+                content_hash = excluded.content_hash
             """,
             (
                 str(path),
@@ -171,8 +183,36 @@ class ScanCache:
                 self._generation,
                 verdict.value,
                 time.time(),
+                content_hash,
             ),
         )
+        await self._db.commit()
+
+    async def paths_with_hash(
+        self, content_hash: str
+    ) -> list[tuple[Path, FileFingerprint]]:
+        """Return every (path, fingerprint) pair that was scanned with ``content_hash``.
+
+        Used by the engine's hash-rescan path: removing a SHA-256
+        entry from the whitelist must trigger a re-scan of every
+        file that was previously recorded as ``WHITELISTED`` for
+        that hash, and the cache is the only place that records
+        which file matched which hash.
+        """
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT path, dev, inode, size, mtime_ns FROM scan_cache "
+            "WHERE content_hash = ?",
+            (content_hash,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            (
+                Path(p),
+                FileFingerprint(dev=dev, inode=inode, size=size, mtime_ns=mtime_ns),
+            )
+            for p, dev, inode, size, mtime_ns in rows
+        ]
 
     async def set_generation(self, generation: int, version: str | None = None) -> None:
         """Bump the cache generation (and optionally the version string).
@@ -182,36 +222,32 @@ class ScanCache:
         are re-scanned. Old rows are not deleted; ``prune_missing`` and
         a future size-based GC can clean them up.
         """
-        await asyncio.to_thread(self._set_generation_sync, generation, version)
-
-    def _set_generation_sync(self, generation: int, version: str | None) -> None:
-        with self._lock:
-            assert self._conn is not None
-            self._conn.execute(
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT INTO meta(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (_META_GENERATION, str(generation)),
+        )
+        if version is not None:
+            await self._db.execute(
                 "INSERT INTO meta(key, value) VALUES(?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (_META_GENERATION, str(generation)),
+                (_META_VERSION, version),
             )
-            if version is not None:
-                self._conn.execute(
-                    "INSERT INTO meta(key, value) VALUES(?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    (_META_VERSION, version),
-                )
-                self._version = version
-            self._generation = generation
+            self._version = version
+        await self._db.commit()
+        self._generation = generation
 
     async def prune_missing(self) -> int:
         """Delete cache rows whose path no longer exists. Returns count removed."""
-        return await asyncio.to_thread(self._prune_missing_sync)
-
-    def _prune_missing_sync(self) -> int:
-        assert self._conn is not None
-        with self._lock:
-            cur = self._conn.execute("SELECT path FROM scan_cache")
-            removed = 0
-            for (p,) in cur:
-                if not Path(p).exists():
-                    self._conn.execute("DELETE FROM scan_cache WHERE path = ?", (p,))
-                    removed += 1
-            return removed
+        assert self._db is not None
+        async with self._db.execute("SELECT path FROM scan_cache") as cur:
+            rows = await cur.fetchall()
+        removed = 0
+        for (p,) in rows:
+            if not Path(p).exists():
+                await self._db.execute("DELETE FROM scan_cache WHERE path = ?", (p,))
+                removed += 1
+        if removed:
+            await self._db.commit()
+        return removed

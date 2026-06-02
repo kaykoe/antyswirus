@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import signal
 from pathlib import Path
 
 import typer
 from typer import Context
 
+from antyswirus_lib.hashing import compute_sha256
 from antyswirusd.daemon import is_pid_alive, read_pidfile
 from antyswirusd.paths import RuntimePaths
 from antyswirus_lib.client import AntyswirusClient
@@ -51,6 +53,24 @@ async def _call(command: str, **args) -> dict:
     return resp.result or {}
 
 
+_HEX_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _resolve_sha256(value: str) -> str:
+    """Accept a hex string or a file path. Hash the file in the latter case."""
+    if _HEX_RE.match(value):
+        return value.lower()
+    stripped = value[7:] if value.startswith("sha256:") else value
+    if _HEX_RE.match(stripped):
+        return stripped.lower()
+    p = Path(value)
+    if p.is_file():
+        return compute_sha256(p)
+    raise typer.BadParameter(
+        f"{value!r} is neither a 64-char SHA-256 hex string nor an existing file"
+    )
+
+
 def status(ctx: Context) -> None:
     """Show antyswirusd's status."""
     r = asyncio.run(_call("status"))
@@ -73,28 +93,73 @@ def scan(
 
 def whitelist_add(
     ctx: Context,
-    pattern: str = typer.Argument(..., help="Glob pattern to whitelist."),
+    kind: str = typer.Option(
+        ...,
+        "--kind",
+        "-k",
+        help="Whitelist entry kind: 'path' (absolute directory) or 'sha256'.",
+    ),
+    value: str = typer.Argument(
+        ...,
+        help=(
+            "For --kind path: absolute directory path. "
+            "For --kind sha256: a 64-char hex digest, an optional 'sha256:' prefixed digest, "
+            "or a path to a file to hash locally."
+        ),
+    ),
+    note: str | None = typer.Option(
+        None, "--note", help="Free-form note attached to the entry."
+    ),
 ) -> None:
-    """Whitelist a path pattern (not yet implemented)."""
-    r = asyncio.run(_call("whitelist_add", pattern=pattern))
-    typer.echo(f"ok: {r}")
+    """Whitelist a directory or a content hash."""
+    if kind == "sha256":
+        resolved = _resolve_sha256(value)
+        asyncio.run(_call("whitelist_add", kind=kind, value=resolved, note=note))
+        typer.echo(f"whitelisted sha256:{resolved}")
+    elif kind == "path":
+        p = Path(value)
+        if not p.is_absolute():
+            raise typer.BadParameter("path entries must be absolute (start with '/')")
+        asyncio.run(_call("whitelist_add", kind=kind, value=str(p), note=note))
+        typer.echo(f"whitelisted directory {p}")
+    else:
+        raise typer.BadParameter(
+            f"unknown --kind {kind!r}; expected 'path' or 'sha256'"
+        )
 
 
 def whitelist_remove(
     ctx: Context,
-    pattern: str = typer.Argument(
-        ..., help="Glob pattern to remove from the whitelist."
+    kind: str = typer.Option(
+        ..., "--kind", "-k", help="Whitelist entry kind: 'path' or 'sha256'."
+    ),
+    value: str = typer.Argument(
+        ..., help="The directory path or SHA-256 hex string to remove."
     ),
 ) -> None:
-    """Remove a pattern from the whitelist (not yet implemented)."""
-    r = asyncio.run(_call("whitelist_remove", pattern=pattern))
-    typer.echo(f"ok: {r}")
+    """Remove a whitelist entry."""
+    if kind not in ("path", "sha256"):
+        raise typer.BadParameter(
+            f"unknown --kind {kind!r}; expected 'path' or 'sha256'"
+        )
+    if kind == "sha256":
+        value = _resolve_sha256(value)
+    r = asyncio.run(_call("whitelist_remove", kind=kind, value=value))
+    typer.echo(f"removed: {r.get('removed')}")
 
 
 def whitelist_list(ctx: Context) -> None:
-    """List whitelisted patterns (not yet implemented)."""
+    """List all whitelist entries."""
     r = asyncio.run(_call("whitelist_list"))
-    typer.echo(f"patterns: {r.get('patterns', [])}")
+    entries = r.get("entries", [])
+    if not entries:
+        typer.echo("whitelist is empty")
+        return
+    for e in entries:
+        kind = e.get("kind")
+        val = e.get("value")
+        note = f"  # {e['note']}" if e.get("note") else ""
+        typer.echo(f"{kind:6s}  {val}{note}")
 
 
 def quarantine_list(ctx: Context) -> None:

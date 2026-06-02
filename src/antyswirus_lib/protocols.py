@@ -4,28 +4,38 @@ The engine never instantiates these directly. It receives concrete
 implementations in its constructor and calls them through the
 attributes declared here. Swapping a stub for a real implementation
 is a one-line change in ``antyswirusd.engine.Engine``.
+
+The ``Whitelist`` and ``HashRepository`` Protocols are sync: the
+underlying storage is local SQLite, and the lookups are single-
+statement indexed reads. This keeps the call sites (the scanner
+thread, the worker coroutine) simple — no async wrapping needed
+for in-process SQL.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
-from antyswirus_lib.types import ScanResult, Verdict
+from antyswirus_lib.types import HashLookup, ScanResult, Verdict
 
 
 class HashRepository(Protocol):
-    """Decides whether a given file is malicious.
+    """Decides whether a given content hash is malicious.
 
-    Implementations may consult a local cache, a remote service, a
-    signature database, or any combination thereof. The engine calls
-    this once per file that needs scanning, so implementations should
-    be safe to call from multiple worker coroutines concurrently.
+    The repository is path-agnostic: its only key is the content
+    hash. The worker is responsible for hashing the file before
+    calling ``lookup_by_hash``.
+
+    Implementations may consult a local signature database, a
+    remote service, or any combination. They should be safe to call
+    from multiple worker coroutines concurrently.
     """
 
-    async def lookup(self, path: Path) -> ScanResult:
-        """Return a ``ScanResult`` describing ``path``."""
+    async def lookup_by_hash(self, content_hash: str) -> HashLookup:
+        """Return a verdict for ``content_hash``."""
         ...
 
     async def close(self) -> None:
@@ -73,31 +83,72 @@ class Quarantine(Protocol):
         ...
 
 
-class Whitelist(Protocol):
-    """Marks files or path patterns as known-safe so they are skipped.
+class WhitelistKind(str, Enum):
+    """The kind of a whitelist entry.
 
-    Patterns are implementation-defined; a typical implementation
-    would support exact paths plus glob patterns. The engine queries
-    ``contains`` during the scan; clients call ``add``/``remove``/``list``
-    over IPC.
+    - ``PATH``: an absolute directory path; everything in or below it is excluded
+      from scanning. No globbing.
+    - ``SHA256``: a content hash; a file whose content hashes to this value is
+      trusted regardless of where it lives.
     """
 
-    async def contains(self, path: Path) -> bool:
-        """Return True if ``path`` matches any whitelisted pattern."""
-        ...
+    PATH = "path"
+    SHA256 = "sha256"
 
-    async def add(self, pattern: str) -> None:
-        """Add a new whitelisted pattern."""
-        ...
 
-    async def remove(self, pattern: str) -> None:
-        """Remove a whitelisted pattern."""
-        ...
+@dataclass(slots=True, frozen=True)
+class WhitelistEntry:
+    """A single whitelist rule."""
 
-    async def list(self) -> list[str]:
-        """Return all currently whitelisted patterns."""
+    kind: WhitelistKind
+    value: str
+    added_at: float = 0.0
+    note: str | None = None
+
+
+class Whitelist(Protocol):
+    """Marks directories and content hashes as known-safe.
+
+    Two narrow query methods back two distinct pipeline hooks:
+
+    - ``matches_directory`` is called by the scanner to decide
+      whether to descend into a directory. Skipping is a real
+      optimisation: no ``stat``, no cache check, no queue submission
+      for anything inside.
+    - ``is_hash_whitelisted`` is called by the lookup worker
+      just before consulting the hash repository. If the file's
+      content hash is whitelisted, the malware-DB is never queried
+      and the verdict is ``WHITELISTED``.
+
+    All methods are async. The on-disk implementation is aiosqlite;
+    the connection is held by the engine on its event loop and is
+    safe to share between scanner and worker coroutines.
+    """
+
+    async def open(self) -> None:
+        """Open the underlying storage. Idempotent."""
         ...
 
     async def close(self) -> None:
         """Release any resources held by the whitelist."""
+        ...
+
+    async def matches_directory(self, path: Path) -> bool:
+        """Return True iff ``path`` equals or is a descendant of any PATH entry."""
+        ...
+
+    async def is_hash_whitelisted(self, content_hash: str) -> bool:
+        """Return True iff ``content_hash`` matches any SHA256 entry."""
+        ...
+
+    async def add(self, entry: WhitelistEntry) -> None:
+        """Add a new entry. Duplicate (kind, value) pairs are ignored."""
+        ...
+
+    async def remove(self, entry: WhitelistEntry) -> bool:
+        """Remove an entry. Return True iff the entry was present."""
+        ...
+
+    async def list(self) -> list[WhitelistEntry]:
+        """Return all currently held entries, oldest first."""
         ...
