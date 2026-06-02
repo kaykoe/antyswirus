@@ -32,6 +32,7 @@ from typing import Any
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
 from antyswirusd.modules import StubHashRepository
+from antyswirusd.monitor import FanotifyMonitor
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.quarantine import Quarantine
@@ -53,6 +54,7 @@ class EngineStatus:
     workers: int
     active_scans: int
     pending_rescans: int
+    real_time_active: bool
 
 
 class Engine:
@@ -87,6 +89,7 @@ class Engine:
         self._server: IpcServer | None = None
         self._shutdown = asyncio.Event()
         self._stopped = asyncio.Event()
+        self._monitor: FanotifyMonitor | None = None
 
     @property
     def cache(self) -> ScanCache:
@@ -153,11 +156,27 @@ class Engine:
 
         self._server = IpcServer(self._paths.socket_path, self)
         await self._server.start()
+
+        # 4. Start real-time fanotify monitor if roots are configured.
+        if self._config.scan_roots:
+            self._monitor = FanotifyMonitor(
+                self._queue,
+                watch_roots=self._config.scan_roots,
+                cache_db_path=self._paths.cache_db_path,
+                whitelist_db_path=self._paths.whitelist_db_path,
+                hash_repo=self._hash_repo,
+                loop=asyncio.get_running_loop(),
+            )
+            self._monitor.start()
+        else:
+            log.info("no scan_roots configured; real-time monitoring inactive")
+
         log.info(
-            "engine started: workers=%d queue=%d roots=%s",
+            "engine started: workers=%d queue=%d roots=%s real_time=%s",
             self._config.worker_count,
             self._config.queue_size,
             [str(r) for r in self._config.scan_roots],
+            self._monitor is not None and self._monitor.is_running,
         )
 
     async def wait_running(self) -> None:
@@ -212,6 +231,11 @@ class Engine:
             except (asyncio.CancelledError, Exception):
                 pass
 
+        # 6. Stop the real-time monitor.
+        if self._monitor is not None:
+            self._monitor.stop()
+            self._monitor = None
+
         await self._cache.close()
         await self._hash_repo.close()
         await self._quarantine.close()
@@ -256,6 +280,7 @@ class Engine:
             workers=len(self._workers),
             active_scans=len(self._scanner_tasks),
             pending_rescans=len(self._rescan_tasks),
+            real_time_active=self._monitor is not None and self._monitor.is_running,
         )
 
     # ------------------------------------------------------------------ #
