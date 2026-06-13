@@ -55,7 +55,6 @@ import asyncio
 import logging
 import os
 import shutil
-import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -184,12 +183,6 @@ class Quarantine:
             await asyncio.to_thread(shutil.move, str(result.path), str(stored))
         except FileNotFoundError:
             raise FileNotFoundError(result.path) from None
-        # Defensive: even though the dir is 0o700, the moved file
-        # could have arrived with loose perms (e.g. world-writable).
-        # We tighten it on the way in; restore leaves it alone (the
-        # original perms are preserved across the rename when we
-        # skip the chmod on the way out).
-        await asyncio.to_thread(self._tighten_file_mode, stored)
         await self._db.execute(
             """
             INSERT INTO entries(
@@ -207,19 +200,6 @@ class Quarantine:
         await self._db.commit()
         log.warning("quarantined %s as %s (%s)", result.path, qid, result.detail or "")
         return qid
-
-    @staticmethod
-    def _tighten_file_mode(path: Path) -> None:
-        # Strip world- and group- write bits; preserve read/execute so
-        # root can still move/delete. 0o600 (read/write owner only)
-        # is the safe baseline for a malware sample.
-        st = os.stat(path)
-        mode = stat.S_IMODE(st.st_mode)
-        new_mode = mode & ~(stat.S_IWGRP | stat.S_IWOTH)
-        new_mode = (new_mode | stat.S_IRUSR) & ~stat.S_IWUSR
-        # Always at least S_IRUSR for owner so root can read it
-        new_mode |= stat.S_IRUSR
-        os.chmod(path, new_mode)
 
     async def restore(self, qid: str) -> None:
         assert self._db is not None
