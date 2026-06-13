@@ -118,7 +118,7 @@ class TestQuarantine:
             try:
                 a = scan_root / "a.txt"
                 original_bytes = a.read_bytes()
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 # File is gone from scan_root.
                 assert not a.exists()
                 # File exists in quarantine dir.
@@ -147,7 +147,7 @@ class TestQuarantine:
             try:
                 a = scan_root / "a.txt"
                 before = time.time()
-                qid = await db.quarantine(a, _malicious(a, detail="badtld"))
+                qid = await db.quarantine(_malicious(a, detail="badtld"))
                 after = time.time()
                 conn = sqlite3.connect(str(runtime_paths.quarantine_db_path))
                 try:
@@ -179,7 +179,7 @@ class TestQuarantine:
             try:
                 a = scan_root / "ghost.txt"
                 with pytest.raises(FileNotFoundError):
-                    await db.quarantine(a, _malicious(a))
+                    await db.quarantine(_malicious(a))
             finally:
                 await db.close()
 
@@ -197,7 +197,7 @@ class TestQuarantine:
             try:
                 a = scan_root / "evil-payload.bin"
                 a.write_bytes(b"x")
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 stored = next(
                     p
                     for p in runtime_paths.quarantine_dir.iterdir()
@@ -221,7 +221,7 @@ class TestQuarantine:
             await db.open()
             try:
                 deep = scan_root / "sub" / "c.txt"
-                qid = await db.quarantine(deep, _malicious(deep))
+                qid = await db.quarantine(_malicious(deep))
                 stored = next(
                     p
                     for p in runtime_paths.quarantine_dir.iterdir()
@@ -247,7 +247,7 @@ class TestRestore:
             try:
                 a = scan_root / "a.txt"
                 original_bytes = a.read_bytes()
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 await db.restore(qid)
                 assert a.exists()
                 assert a.read_bytes() == original_bytes
@@ -296,7 +296,7 @@ class TestRestore:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 # Occupy the original path with unrelated bytes.
                 a.write_bytes(b"unrelated")
                 with pytest.raises(FileExistsError):
@@ -324,7 +324,7 @@ class TestRestore:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 # Yank the stored file out from under the db.
                 stored = next(
                     p
@@ -359,7 +359,7 @@ class TestDelete:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 stored = next(
                     p
                     for p in runtime_paths.quarantine_dir.iterdir()
@@ -390,7 +390,7 @@ class TestDelete:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 stored = next(
                     p
                     for p in runtime_paths.quarantine_dir.iterdir()
@@ -458,7 +458,7 @@ class TestList:
                     scan_root / "sub" / "c.txt",
                 ]
                 for p in paths:
-                    await db.quarantine(p, _malicious(p))
+                    await db.quarantine(_malicious(p))
                 items = await db.list(offset=0, limit=100)
                 assert len(items) == 3
                 # Sorted by quarantined_at (and qid as tiebreaker).
@@ -484,7 +484,7 @@ class TestList:
                     scan_root / "sub" / "c.txt",
                 ]
                 for p in paths:
-                    await db.quarantine(p, _malicious(p))
+                    await db.quarantine(_malicious(p))
                 # Sleep so the timestamp ordering is stable.
                 await asyncio.sleep(0.01)
                 page1 = await db.list(offset=0, limit=2)
@@ -514,7 +514,7 @@ class TestList:
                 # Without any rows this is just []; the clamp only
                 # matters for actual data. Add one row and retry.
                 p = scan_root / "a.txt"
-                await db.quarantine(p, _malicious(p))
+                await db.quarantine(_malicious(p))
                 items = await db.list(offset=0, limit=10**9)
                 assert len(items) == 1
                 # And ``MAX_LIST_LIMIT`` is what we expect.
@@ -534,7 +534,7 @@ class TestList:
             try:
                 a = scan_root / "a.txt"
                 before = time.time()
-                qid = await db.quarantine(a, _malicious(a, detail="sig-x"))
+                qid = await db.quarantine(_malicious(a, detail="sig-x"))
                 after = time.time()
                 items = await db.list(offset=0, limit=10)
                 assert len(items) == 1
@@ -561,9 +561,9 @@ class TestCount:
             try:
                 assert await db.count() == 0
                 a = scan_root / "a.txt"
-                qid1 = await db.quarantine(a, _malicious(a))
+                qid1 = await db.quarantine(_malicious(a))
                 b = scan_root / "b.txt"
-                qid2 = await db.quarantine(b, _malicious(b))
+                qid2 = await db.quarantine(_malicious(b))
                 assert await db.count() == 2
                 await db.delete(qid1)
                 assert await db.count() == 1
@@ -585,7 +585,7 @@ class TestPrune:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 stored = next(
                     p
                     for p in runtime_paths.quarantine_dir.iterdir()
@@ -614,7 +614,7 @@ class TestPrune:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db.quarantine(a, _malicious(a))
+                qid = await db.quarantine(_malicious(a))
                 # Manually rewind the row's timestamp by 5 days.
                 conn = sqlite3.connect(str(runtime_paths.quarantine_db_path))
                 try:
@@ -643,7 +643,7 @@ class TestPrune:
             await db.open()
             try:
                 a = scan_root / "a.txt"
-                await db.quarantine(a, _malicious(a))
+                await db.quarantine(_malicious(a))
                 removed = await db.prune()
                 assert removed == 0
                 assert await db.count() == 1
@@ -663,7 +663,7 @@ class TestPersistence:
             await db1.open()
             try:
                 a = scan_root / "a.txt"
-                qid = await db1.quarantine(a, _malicious(a))
+                qid = await db1.quarantine(_malicious(a))
             finally:
                 await db1.close()
 

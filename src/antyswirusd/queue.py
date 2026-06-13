@@ -146,7 +146,7 @@ class LookupWorker:
         )
 
         if result.verdict is Verdict.MALICIOUS:
-            qid = await self._quarantine.quarantine(req.path, result)
+            qid = await self._quarantine.quarantine(result)
             log.warning(
                 "quarantined %s as %s (%s)",
                 req.path,
