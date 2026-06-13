@@ -75,8 +75,8 @@ class Quarantine(Protocol):
         """Release any resources held by the quarantine."""
         ...
 
-    async def quarantine(self, path: Path, result: ScanResult) -> str:
-        """Move ``path`` into the quarantine and return a quarantine id."""
+    async def quarantine(self, result: ScanResult) -> str:
+        """Move the file into quarantine and return a quarantine id."""
         ...
 
     async def restore(self, quarantine_id: str) -> None:

@@ -32,7 +32,7 @@ Schema
 Semantics
 ---------
 
-- ``quarantine(path, result)`` generates a fresh ``qid``, moves the
+- ``quarantine(result)`` generates a fresh ``qid``, moves the
   file into the quarantine dir as ``<qid>__<basename>`` (the
   basename suffix is purely for human inspection; the ``qid`` is the
   unique handle), inserts the row, and returns the ``qid``.
@@ -172,7 +172,7 @@ class QuarantineDb:
     def _stored_path(self, qid: str, basename: str) -> Path:
         return self._dir / f"{qid}__{basename}"
 
-    async def quarantine(self, path: Path, result: ScanResult) -> str:
+    async def quarantine(self, result: ScanResult) -> str:
         assert self._db is not None
         # ``shutil.move`` is the right primitive: same-fs move is
         # atomic via ``os.rename``; cross-fs falls back to copy+unlink
@@ -180,11 +180,11 @@ class QuarantineDb:
         # away, so we don't need a separate "did the move succeed"
         # check.
         qid = uuid.uuid4().hex
-        stored = self._stored_path(qid, _safe_basename(path))
+        stored = self._stored_path(qid, _safe_basename(result.path))
         try:
-            await asyncio.to_thread(shutil.move, str(path), str(stored))
+            await asyncio.to_thread(shutil.move, str(result.path), str(stored))
         except FileNotFoundError:
-            raise FileNotFoundError(path) from None
+            raise FileNotFoundError(result.path) from None
         # Defensive: even though the dir is 0o700, the moved file
         # could have arrived with loose perms (e.g. world-writable).
         # We tighten it on the way in; restore leaves it alone (the
@@ -199,14 +199,14 @@ class QuarantineDb:
             """,
             (
                 qid,
-                str(path),
+                str(result.path),
                 time.time(),
                 result.verdict.value,
                 result.detail,
             ),
         )
         await self._db.commit()
-        log.warning("quarantined %s as %s (%s)", path, qid, result.detail or "")
+        log.warning("quarantined %s as %s (%s)", result.path, qid, result.detail or "")
         return qid
 
     @staticmethod
