@@ -34,17 +34,12 @@ from antyswirusd.config import Config
 from antyswirusd.modules import StubHashRepository
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
-from antyswirusd.quarantine import QuarantineDb
+from antyswirusd.quarantine import Quarantine
 from antyswirusd.scanner import WalkScanner
 from antyswirusd.server import IpcServer
-from antyswirusd.whitelist import WhitelistDb
-from antyswirus_lib.protocols import (
-    Quarantine,
-    Whitelist,
-    WhitelistEntry,
-    WhitelistKind,
-)
-from antyswirus_lib.types import FileFingerprint
+from antyswirusd.whitelist import Whitelist
+
+from antyswirus_lib.types import FileFingerprint, WhitelistEntry, WhitelistKind
 
 log = logging.getLogger(__name__)
 
@@ -72,14 +67,14 @@ class Engine:
         self._paths = paths
         self._config = config
         self._cache = ScanCache(paths.cache_db_path)
-        self._whitelist: Whitelist = WhitelistDb(paths.whitelist_db_path)
+        self._whitelist: Whitelist = Whitelist(paths.whitelist_db_path)
         self._hash_repo: Any = (
             hash_repo if hash_repo is not None else StubHashRepository()
         )
         self._quarantine: Quarantine = (
             quarantine
             if quarantine is not None
-            else QuarantineDb(
+            else Quarantine(
                 paths.quarantine_dir,
                 paths.quarantine_db_path,
                 max_age_days=config.quarantine_max_age_days,

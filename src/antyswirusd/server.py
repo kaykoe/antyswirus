@@ -21,7 +21,7 @@ from antyswirus_lib.ipc import (
     read_message,
     write_message,
 )
-from antyswirus_lib.protocols import WhitelistEntry, WhitelistKind
+from antyswirus_lib.types import WhitelistEntry, WhitelistKind
 
 if TYPE_CHECKING:
     from antyswirusd.engine import Engine

@@ -41,7 +41,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from antyswirus_lib.protocols import WhitelistEntry, WhitelistKind
+from antyswirus_lib.types import WhitelistEntry, WhitelistKind
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_entries_kind ON entries(kind);
 """
 
 
-class WhitelistDb:
+class Whitelist:
     """aiosqlite-backed :class:`Whitelist` implementation."""
 
     def __init__(self, db_path: Path) -> None:
