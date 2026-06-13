@@ -63,8 +63,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from antyswirus_lib.protocols import QuarantinedFile
-from antyswirus_lib.types import ScanResult, Verdict
+from antyswirus_lib.types import QuarantinedFile, ScanResult, Verdict
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +110,7 @@ class _StoredFile:
         raise NotImplementedError
 
 
-class QuarantineDb:
+class Quarantine:
     """aiosqlite-backed :class:`Quarantine` implementation."""
 
     def __init__(

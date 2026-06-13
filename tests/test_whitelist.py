@@ -34,20 +34,20 @@ from antyswirusd.config import Config
 from antyswirusd.engine import Engine
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.scanner import WalkScanner
-from antyswirusd.whitelist import WhitelistDb
+from antyswirusd.whitelist import Whitelist
 from antyswirus_lib import Verdict
 from antyswirus_lib.client import AntyswirusClient
 from antyswirus_lib.hashing import compute_sha256
-from antyswirus_lib.protocols import WhitelistEntry, WhitelistKind
-from antyswirus_lib.types import FileFingerprint, HashLookup
+from antyswirus_lib.types import WhitelistEntry, WhitelistKind
+from antyswirus_lib.types import FileFingerprint, HashLookup, ScanResult
 
 
 def _fp(p: Path) -> FileFingerprint:
     return FileFingerprint.from_stat(p.stat())
 
 
-async def _open_wl(paths) -> WhitelistDb:
-    wl = WhitelistDb(paths.whitelist_db_path)
+async def _open_wl(paths) -> Whitelist:
+    wl = Whitelist(paths.whitelist_db_path)
     await wl.open()
     return wl
 
@@ -99,11 +99,11 @@ def _deeper_tree(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# WhitelistDb: direct unit tests
+# Whitelist: direct unit tests
 # ---------------------------------------------------------------------------
 
 
-class TestWhitelistDb:
+class TestWhitelist:
     def test_open_creates_schema(self, runtime_paths):
         async def go():
             wl = await _open_wl(runtime_paths)
@@ -515,7 +515,7 @@ class _RecordingHashRepo:
 
 class _RecordingQuarantine:
     def __init__(self) -> None:
-        self.calls: list[tuple[Path, Verdict]] = []
+        self.calls: list[ScanResult] = []
 
     async def open(self) -> None:
         pass
@@ -523,8 +523,8 @@ class _RecordingQuarantine:
     async def close(self) -> None:
         pass
 
-    async def quarantine(self, path: Path, result):
-        self.calls.append((path, result.verdict))
+    async def quarantine(self, result: ScanResult) -> str:
+        self.calls.append(result)
         return "q1"
 
     async def restore(self, qid: str) -> None:

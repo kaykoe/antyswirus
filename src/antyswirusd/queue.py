@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from antyswirus_lib.hashing import compute_sha256
-from antyswirus_lib.protocols import HashRepository, Quarantine, Whitelist
+from antyswirusd.quarantine import Quarantine
+from antyswirusd.whitelist import Whitelist
+from antyswirus_lib.types import HashRepository
 from antyswirus_lib.types import FileFingerprint, ScanResult, Verdict
 
 if TYPE_CHECKING:

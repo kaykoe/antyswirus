@@ -11,7 +11,7 @@ import pytest
 from antyswirusd.cache import ScanCache
 from antyswirusd.queue import LookupQueue, ScanRequest
 from antyswirusd.scanner import WalkScanner
-from antyswirusd.whitelist import WhitelistDb
+from antyswirusd.whitelist import Whitelist
 from antyswirus_lib.types import FileFingerprint, Verdict
 
 
@@ -40,7 +40,7 @@ class TestScanFile:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 q = _CollectingQueue()
@@ -63,7 +63,7 @@ class TestScanFile:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 q = _CollectingQueue()
@@ -87,7 +87,7 @@ class TestScanDirectory:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 q = _CollectingQueue()
@@ -114,7 +114,7 @@ class TestScanDirectory:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 q = _CollectingQueue()
@@ -139,7 +139,7 @@ class TestCacheIntegration:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 a = scan_root / "a.txt"
@@ -166,7 +166,7 @@ class TestCacheIntegration:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 a = scan_root / "a.txt"
@@ -196,7 +196,7 @@ class TestPermissionDenied:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             forbidden = scan_root / "private"
             forbidden.mkdir()
@@ -227,7 +227,7 @@ class TestRealQueue:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 q = LookupQueue(maxsize=16)

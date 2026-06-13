@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Protocol, runtime_checkable
 
 
 class Verdict(str, Enum):
@@ -70,3 +70,48 @@ class HashLookup:
 
     verdict: Verdict
     detail: str | None = None
+
+
+class WhitelistKind(str, Enum):
+    """The kind of a whitelist entry.
+
+    - ``PATH``: an absolute directory path; everything in or below it is excluded
+      from scanning. No globbing.
+    - ``SHA256``: a content hash; a file whose content hashes to this value is
+      trusted regardless of where it lives.
+    """
+
+    PATH = "path"
+    SHA256 = "sha256"
+
+
+@dataclass(slots=True, frozen=True)
+class WhitelistEntry:
+    """A single whitelist rule."""
+
+    kind: WhitelistKind
+    value: str
+    added_at: float = 0.0
+    note: str | None = None
+
+
+@dataclass(slots=True)
+class QuarantinedFile:
+    """Metadata about a file currently held in quarantine."""
+
+    id: str
+    original_path: Path
+    quarantined_at: float
+    verdict: Verdict
+    detail: str | None = None
+
+
+@runtime_checkable
+class HashRepository(Protocol):
+    """A source of hash-based verdicts, agnostic of file paths."""
+
+    async def lookup_by_hash(self, content_hash: str) -> HashLookup:
+        ...
+
+    async def close(self) -> None:
+        ...

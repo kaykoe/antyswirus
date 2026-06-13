@@ -23,7 +23,7 @@ from pathlib import Path
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.queue import LookupQueue, ScanRequest
-from antyswirus_lib.protocols import Whitelist
+from antyswirusd.whitelist import Whitelist
 from antyswirus_lib.types import FileFingerprint
 
 log = logging.getLogger(__name__)

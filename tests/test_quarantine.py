@@ -1,4 +1,4 @@
-"""Tests for the antyswirusd.quarantine module (QuarantineDb)."""
+"""Tests for the antyswirusd.quarantine module (Quarantine)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from antyswirusd.quarantine import MAX_LIST_LIMIT, QuarantineDb
+from antyswirusd.quarantine import MAX_LIST_LIMIT, Quarantine
 from antyswirus_lib import Verdict
 from antyswirus_lib.types import ScanResult
 
@@ -22,7 +22,7 @@ def _malicious(path: Path, detail: str = "eicar") -> ScanResult:
 class TestOpenClose:
     def test_open_creates_dir_and_db(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -47,7 +47,7 @@ class TestOpenClose:
 
     def test_open_is_idempotent(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -61,7 +61,7 @@ class TestOpenClose:
 
     def test_close_is_idempotent(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -74,7 +74,7 @@ class TestOpenClose:
 
     def test_quarantine_dir_is_mode_700(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -93,7 +93,7 @@ class TestOpenClose:
             # Pre-create the dir with loose perms; ``open`` must fix it.
             runtime_paths.quarantine_dir.mkdir(parents=True, exist_ok=True)
             os.chmod(runtime_paths.quarantine_dir, 0o755)
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -110,7 +110,7 @@ class TestOpenClose:
 class TestQuarantine:
     def test_quarantine_moves_file_and_returns_qid(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -139,7 +139,7 @@ class TestQuarantine:
 
     def test_quarantine_inserts_row(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -171,7 +171,7 @@ class TestQuarantine:
 
     def test_quarantine_missing_file_raises(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -189,7 +189,7 @@ class TestQuarantine:
         self, runtime_paths, scan_root
     ):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -214,7 +214,7 @@ class TestQuarantine:
         quarantine dir (no nested directories)."""
 
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -239,7 +239,7 @@ class TestQuarantine:
 class TestRestore:
     def test_restore_moves_file_back(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -274,7 +274,7 @@ class TestRestore:
 
     def test_restore_unknown_id_raises(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -289,7 +289,7 @@ class TestRestore:
 
     def test_restore_refuses_when_destination_occupied(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -317,7 +317,7 @@ class TestRestore:
 
     def test_restore_prunes_row_when_file_vanished(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -352,7 +352,7 @@ class TestRestore:
 class TestDelete:
     def test_delete_removes_file_and_row(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -383,7 +383,7 @@ class TestDelete:
 
     def test_delete_idempotent_on_missing_file(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -414,7 +414,7 @@ class TestDelete:
 
     def test_delete_unknown_id_raises(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -431,7 +431,7 @@ class TestDelete:
 class TestList:
     def test_list_empty(self, runtime_paths):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -446,7 +446,7 @@ class TestList:
 
     def test_list_returns_all_when_under_limit(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -472,7 +472,7 @@ class TestList:
 
     def test_list_pagination(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -503,7 +503,7 @@ class TestList:
 
     def test_list_limit_clamped_to_max(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -526,7 +526,7 @@ class TestList:
 
     def test_list_items_carry_protocol_fields(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -553,7 +553,7 @@ class TestList:
 class TestCount:
     def test_count_tracks_inserts_and_deletes(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -578,7 +578,7 @@ class TestCount:
 class TestPrune:
     def test_prune_removes_rows_whose_file_vanished(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -606,7 +606,7 @@ class TestPrune:
         async def go():
             # Build a db with max_age_days=1 so the test's old rows
             # are unambiguously "aged out".
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
                 max_age_days=1,
@@ -635,7 +635,7 @@ class TestPrune:
 
     def test_prune_keeps_fresh_rows(self, runtime_paths, scan_root):
         async def go():
-            db = QuarantineDb(
+            db = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
                 max_age_days=14,
@@ -656,7 +656,7 @@ class TestPrune:
 class TestPersistence:
     def test_rows_survive_reopen(self, runtime_paths, scan_root):
         async def go():
-            db1 = QuarantineDb(
+            db1 = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )
@@ -667,7 +667,7 @@ class TestPersistence:
             finally:
                 await db1.close()
 
-            db2 = QuarantineDb(
+            db2 = Quarantine(
                 runtime_paths.quarantine_dir,
                 runtime_paths.quarantine_db_path,
             )

@@ -256,7 +256,7 @@ class TestWhitelistCommands:
 class TestQuarantineCommands:
     """End-to-end IPC tests for the quarantine commands.
 
-    Wires a real :class:`QuarantineDb` and a recording
+    Wires a real :class:`Quarantine` and a recording
     ``HashRepository`` that flags everything as malicious, then walks
     a malicious file through quarantine_list / quarantine_restore /
     quarantine_delete.
