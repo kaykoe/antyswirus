@@ -13,14 +13,18 @@ import ctypes
 import ctypes.util
 import logging
 import os
-import sqlite3
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from antyswirus_lib.hashing import compute_sha256
 from antyswirus_lib.types import FileFingerprint, Verdict
 
-from antyswirusd.queue import ScanRequest
+from antyswirusd.queue import LookupQueue, ScanRequest
+
+if TYPE_CHECKING:
+    from antyswirusd.cache import ScanCache
+    from antyswirusd.whitelist import Whitelist
 
 log = logging.getLogger(__name__)
 
@@ -116,11 +120,11 @@ class FanotifyMonitor:
 
     def __init__(
         self,
-        queue: asyncio.Queue,
+        queue: LookupQueue,
         *,
         watch_roots: list[Path],
-        cache_db_path: Path,
-        whitelist_db_path: Path,
+        cache: ScanCache,
+        whitelist: Whitelist,
         hash_repo,
         loop: asyncio.AbstractEventLoop,
     ) -> None:
@@ -129,16 +133,14 @@ class FanotifyMonitor:
 
         self._queue = queue
         self._watch_roots = list(watch_roots)
-        self._cache_db_path = cache_db_path
-        self._whitelist_db_path = whitelist_db_path
+        self._cache = cache
+        self._whitelist = whitelist
         self._hash_repo = hash_repo
         self._loop = loop
 
         self._fd: int = -1
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._cache_conn: sqlite3.Connection | None = None
-        self._whitelist_conn: sqlite3.Connection | None = None
 
     # -- public life-cycle ---------------------------------------- #
 
@@ -159,12 +161,6 @@ class FanotifyMonitor:
 
         for root in self._watch_roots:
             self._add_mark(root)
-
-        self._cache_conn = sqlite3.connect(str(self._cache_db_path))
-        self._cache_conn.execute("PRAGMA query_only = 1")
-
-        self._whitelist_conn = sqlite3.connect(str(self._whitelist_db_path))
-        self._whitelist_conn.execute("PRAGMA query_only = 1")
 
         self._stop_event.clear()
         self._thread = threading.Thread(
@@ -196,18 +192,6 @@ class FanotifyMonitor:
                 log.warning("fanotify thread did not exit within timeout")
             self._thread = None
 
-        for conn_name, conn in [
-            ("cache", self._cache_conn),
-            ("whitelist", self._whitelist_conn),
-        ]:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception as exc:
-                    log.debug("error closing %s db: %s", conn_name, exc)
-
-        self._cache_conn = None
-        self._whitelist_conn = None
         log.info("fanotify monitor stopped")
 
     # -- fanotify initialisation ---------------------------------- #
@@ -254,17 +238,16 @@ class FanotifyMonitor:
 
     def _event_loop(self) -> None:
         """Read fanotify events and dispatch them."""
-        buf = bytearray(_BUF_SIZE)
         while not self._stop_event.is_set():
             try:
-                n = os.read(self._fd, buf)
+                data = os.read(self._fd, _BUF_SIZE)
             except OSError:
                 if not self._stop_event.is_set():
                     log.exception("fanotify read error")
                 break
-            if n <= 0:
+            if not data:
                 continue
-            self._process_events(buf[:n])
+            self._process_events(data)
 
     def _process_events(self, data: bytes) -> None:
         offset = 0
@@ -324,8 +307,22 @@ class FanotifyMonitor:
 
     # -- event handlers ------------------------------------------- #
 
+    def _run_async(self, coro, timeout: float = 30):
+        """Schedule coroutine on the event loop and return its result."""
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=timeout)
+
     def _on_close_write(self, path: Path) -> None:
         """A file was closed after being written. Submit it for scanning."""
+        try:
+            is_whitelisted = self._run_async(
+                self._whitelist.matches_directory(path)
+            )
+        except Exception:
+            is_whitelisted = False
+        if is_whitelisted:
+            return
+
         try:
             st = path.stat()
         except FileNotFoundError:
@@ -353,16 +350,20 @@ class FanotifyMonitor:
             log.debug("fanotify: hash failed for %s: %s", path, exc)
             return Verdict.ERROR
 
-        if self._is_hash_whitelisted(content_hash):
+        try:
+            is_wl = self._run_async(
+                self._whitelist.is_hash_whitelisted(content_hash)
+            )
+        except Exception:
+            is_wl = False
+        if is_wl:
             self._record_cache(path, content_hash, Verdict.WHITELISTED)
             return Verdict.WHITELISTED
 
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._hash_repo.lookup_by_hash(content_hash),
-                self._loop,
+            hit = self._run_async(
+                self._hash_repo.lookup_by_hash(content_hash)
             )
-            hit = future.result(timeout=30)
         except Exception as exc:
             log.warning("fanotify: hash lookup failed for %s: %s", path, exc)
             self._record_cache(path, content_hash, Verdict.ERROR)
@@ -371,54 +372,17 @@ class FanotifyMonitor:
         self._record_cache(path, content_hash, hit.verdict)
         return hit.verdict
 
-    # -- synchronous db helpers ----------------------------------- #
-
-    def _is_hash_whitelisted(self, content_hash: str) -> bool:
-        if self._whitelist_conn is None:
-            return False
-        try:
-            cur = self._whitelist_conn.execute(
-                "SELECT 1 FROM entries WHERE kind = 'sha256' AND value = ? LIMIT 1",
-                (content_hash,),
-            )
-            return cur.fetchone() is not None
-        except Exception as exc:
-            log.debug("fanotify: whitelist query error: %s", exc)
-            return False
+    # -- async db helpers (called via _run_async on the event loop) #
 
     def _record_cache(self, path: Path, content_hash: str, verdict: Verdict) -> None:
-        if self._cache_conn is None:
-            return
         try:
             st = path.stat()
         except OSError:
             return
         fp = FileFingerprint.from_stat(st)
         try:
-            self._cache_conn.execute(
-                "INSERT INTO scan_cache("
-                "  path, dev, inode, size, mtime_ns, generation,"
-                "  verdict, scanned_at, content_hash"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(path) DO UPDATE SET"
-                "  dev=excluded.dev, inode=excluded.inode,"
-                "  size=excluded.size, mtime_ns=excluded.mtime_ns,"
-                "  generation=excluded.generation,"
-                "  verdict=excluded.verdict,"
-                "  scanned_at=excluded.scanned_at,"
-                "  content_hash=excluded.content_hash",
-                (
-                    str(path),
-                    fp.dev,
-                    fp.inode,
-                    fp.size,
-                    fp.mtime_ns,
-                    0,
-                    verdict.value,
-                    __import__("time").time(),
-                    content_hash,
-                ),
+            self._run_async(
+                self._cache.record(path, fp, verdict, content_hash)
             )
-            self._cache_conn.commit()
         except Exception as exc:
             log.debug("fanotify: cache record error: %s", exc)
