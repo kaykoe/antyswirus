@@ -162,8 +162,8 @@ class Engine:
             self._monitor = FanotifyMonitor(
                 self._queue,
                 watch_roots=self._config.scan_roots,
-                cache_db_path=self._paths.cache_db_path,
-                whitelist_db_path=self._paths.whitelist_db_path,
+                cache=self._cache,
+                whitelist=self._whitelist,
                 hash_repo=self._hash_repo,
                 loop=asyncio.get_running_loop(),
             )
