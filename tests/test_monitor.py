@@ -485,6 +485,7 @@ class TestEngineIntegration:
                 queue_size=64,
                 log_level="WARNING",
                 socket_mode=0o600,
+                sync_on_startup=False,
             )
             engine = Engine(runtime_paths, cfg)
             await engine.start()
@@ -510,6 +511,7 @@ class TestEngineIntegration:
                 queue_size=64,
                 log_level="WARNING",
                 socket_mode=0o600,
+                sync_on_startup=False,
             )
             engine = Engine(runtime_paths, cfg)
             await engine.start()

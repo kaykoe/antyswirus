@@ -74,6 +74,7 @@ def _config() -> Config:
         queue_size=64,
         log_level="WARNING",
         socket_mode=0o600,
+        sync_on_startup=False,
     )
 
 

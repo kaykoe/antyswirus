@@ -35,6 +35,7 @@ def make_paths(root: Path) -> RuntimePaths:
         pid_path=runtime_dir / "antyswirusd.pid",
         cache_db_path=state_dir / "scan_cache.db",
         whitelist_db_path=state_dir / "whitelist.db",
+        hash_db_path=state_dir / "hash.db",
         quarantine_dir=quarantine_dir,
         quarantine_db_path=state_dir / "quarantine.db",
         log_path=log_dir / "antyswirusd.log",
@@ -112,6 +113,7 @@ class DaemonProcess:
                     f"queue_size = {self.config.queue_size}",
                     f'log_level = "{self.config.log_level}"',
                     f"socket_mode = {oct(self.config.socket_mode)}",
+                    f"sync_on_startup = {str(self.config.sync_on_startup).lower()}",
                 ]
             )
             + "\n",
@@ -176,7 +178,7 @@ class DaemonProcess:
 @pytest.fixture
 def daemon(runtime_paths: RuntimePaths) -> Iterator[DaemonProcess]:
     """A running antyswirusd subprocess, started/stopped per-test."""
-    proc = DaemonProcess(runtime_paths, Config())
+    proc = DaemonProcess(runtime_paths, Config(sync_on_startup=False))
     proc.start()
     try:
         yield proc

@@ -3,10 +3,9 @@
 Downloads SHA-256 hash list archives from VirusShare and imports
 them into the local :class:`HashDatabase <antyswirusd.hash_db.HashDatabase>`.
 
-VirusShare publishes over 50 million SHA-256 hashes across multiple
-zip archives named ``VirusShare_XXXXX.zip`` (5-digit zero-padded
-index). Each archive contains a plain-text file with one hex SHA-256
-per line.
+VirusShare publishes SHA-256 hashes across multiple zip archives
+named ``VirusShare_XXXXX.zip`` (5-digit zero-padded index). Each
+archive contains a plain-text file with one hex SHA-256 per line.
 
 Sources
 -------
@@ -14,6 +13,8 @@ Sources
 
 The module tracks the last successfully imported file index in
 ``sync_meta`` so subsequent syncs resume where they left off.
+The maximum index is discovered dynamically: the download loop
+stops after three consecutive failures.
 """
 
 from __future__ import annotations
@@ -30,14 +31,15 @@ log = logging.getLogger(__name__)
 
 _BASE_URL = "https://virusshare.com/hashes/VirusShare_{:05d}.zip"
 _SOURCE_NAME = "virusshare"
-_MAX_INDEX = 538  # known upper bound (VirusShare_00538.zip)
+_MAX_CONSECUTIVE_FAILURES = 3
 
 
 def _download_zip(index: int) -> bytes | None:
     """Download a VirusShare hash zip by index. Returns None on failure."""
+    import urllib.request
+
     url = _BASE_URL.format(index)
     log.debug("downloading %s", url)
-    import urllib.request
     try:
         with urllib.request.urlopen(url, timeout=120) as resp:
             if resp.status != 200:
@@ -52,7 +54,7 @@ def _download_zip(index: int) -> bytes | None:
 def _extract_hashes(raw: bytes) -> list[str]:
     """Extract SHA-256 hashes from a VirusShare zip archive.
 
-    The zip contains a single text file with one hex hash per line.
+    The zip contains one or more text files with one hex hash per line.
     """
     hashes: list[str] = []
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -66,9 +68,12 @@ def _extract_hashes(raw: bytes) -> list[str]:
 
 
 async def sync_from_index(
-    db: HashDatabase, start: int = 0, end: int = _MAX_INDEX
+    db: HashDatabase, start: int = 0, end: int | None = None
 ) -> dict[int, int]:
-    """Download and import VirusShare hash lists from *start* to *end* (inclusive).
+    """Download and import VirusShare hash lists from *start*.
+
+    Stops when *end* is reached (if given) or after
+    ``_MAX_CONSECUTIVE_FAILURES`` consecutive download failures.
 
     Returns a dict mapping each successfully imported index to the
     number of new hashes it contributed.
@@ -76,19 +81,35 @@ async def sync_from_index(
     import asyncio
 
     results: dict[int, int] = {}
-    for i in range(start, end + 1):
+    consecutive_failures = 0
+    i = start
+    while True:
+        if end is not None and i > end:
+            break
         raw = await asyncio.to_thread(_download_zip, i)
         if raw is None:
-            log.warning("VirusShare_%05d.zip skipped", i)
+            consecutive_failures += 1
+            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                log.info(
+                    "stopping at index %d after %d consecutive failures",
+                    i,
+                    consecutive_failures,
+                )
+                break
+            i += 1
             continue
+        consecutive_failures = 0
         hashes = await asyncio.to_thread(_extract_hashes, raw)
         count = await db.import_virusshare_hashes(hashes)
         results[i] = count
         log.info(
             "VirusShare_%05d.zip: %d hashes, %d new",
-            i, len(hashes), count,
+            i,
+            len(hashes),
+            count,
         )
         await db.set_sync_meta(_SOURCE_NAME, str(i + 1))
+        i += 1
     return results
 
 

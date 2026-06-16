@@ -16,6 +16,7 @@ def _kwargs(tmp_path: Path) -> dict:
         pid_path=tmp_path / "r" / "antyswirusd.pid",
         cache_db_path=tmp_path / "s" / "scan_cache.db",
         whitelist_db_path=tmp_path / "s" / "whitelist.db",
+        hash_db_path=tmp_path / "s" / "hash.db",
         quarantine_dir=tmp_path / "s" / "quarantine",
         quarantine_db_path=tmp_path / "s" / "quarantine.db",
         log_path=tmp_path / "l" / "antyswirusd.log",
@@ -38,6 +39,7 @@ class TestDefault:
         assert p.pid_path == Path("/run/antyswirus/antyswirusd.pid")
         assert p.cache_db_path == Path("/var/lib/antyswirus/scan_cache.db")
         assert p.whitelist_db_path == Path("/var/lib/antyswirus/whitelist.db")
+        assert p.hash_db_path == Path("/var/lib/antyswirus/hash.db")
         assert p.quarantine_dir == Path("/var/lib/antyswirus/quarantine")
         assert p.quarantine_db_path == Path("/var/lib/antyswirus/quarantine.db")
         assert p.log_path == Path("/var/log/antyswirus/antyswirusd.log")
@@ -54,6 +56,7 @@ class TestDefault:
         assert p.pid_path == tmp_path / "r" / "antyswirusd.pid"
         assert p.cache_db_path == tmp_path / "s" / "scan_cache.db"
         assert p.whitelist_db_path == tmp_path / "s" / "whitelist.db"
+        assert p.hash_db_path == tmp_path / "s" / "hash.db"
         assert p.quarantine_dir == tmp_path / "s" / "quarantine"
         assert p.quarantine_db_path == tmp_path / "s" / "quarantine.db"
         assert p.log_path == tmp_path / "l" / "antyswirusd.log"

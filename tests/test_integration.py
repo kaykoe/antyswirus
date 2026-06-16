@@ -25,7 +25,7 @@ class TestDaemonLifecycle:
     def test_daemon_writes_pidfile_and_socket(
         self, runtime_paths, env_with_runtime_paths
     ):
-        proc = DaemonProcess(runtime_paths, Config())
+        proc = DaemonProcess(runtime_paths, Config(sync_on_startup=False))
         proc.start()
         try:
             assert runtime_paths.pid_path.exists()
@@ -39,7 +39,7 @@ class TestDaemonLifecycle:
             assert not runtime_paths.socket_path.exists()
 
     def test_daemon_logs_to_logfile(self, runtime_paths, env_with_runtime_paths):
-        proc = DaemonProcess(runtime_paths, Config(log_level="INFO"))
+        proc = DaemonProcess(runtime_paths, Config(log_level="INFO", sync_on_startup=False))
         proc.start()
         try:
             wait_for(lambda: runtime_paths.log_path.exists())
@@ -49,7 +49,7 @@ class TestDaemonLifecycle:
             proc.stop()
 
     def test_double_start_refuses(self, runtime_paths, env_with_runtime_paths):
-        proc1 = DaemonProcess(runtime_paths, Config())
+        proc1 = DaemonProcess(runtime_paths, Config(sync_on_startup=False))
         proc1.start()
         try:
             # Second ``antyswirusd start`` should fail because the first
@@ -73,7 +73,7 @@ class TestDaemonLifecycle:
 
 
 def _debug_config() -> Config:
-    return Config(log_level="DEBUG")
+    return Config(log_level="DEBUG", sync_on_startup=False)
 
 
 class TestClientOverSocket:
@@ -157,7 +157,7 @@ class TestCachingBehavior:
             )
 
             # Truncate the log; second scan should produce 3 cache hits and
-            # zero "stub hash lookup" entries.
+            # zero "hash lookup" entries.
             (runtime_paths.log_path).write_text("", encoding="utf-8")
             subprocess.run(
                 [sys.executable, "-m", "antyswirus", "scan", str(scan_root)],
@@ -169,7 +169,7 @@ class TestCachingBehavior:
             )
             log = (runtime_paths.log_path).read_text(encoding="utf-8")
             assert "cache hit" in log
-            assert "stub hash lookup" not in log
+            assert "hash lookup" not in log
         finally:
             proc.stop()
 
@@ -210,8 +210,8 @@ class TestCachingBehavior:
             # The unmodified files should still be cache hits.
             assert "b.txt" in log
             assert "c.txt" in log
-            # a.txt should have been re-hashed (one stub lookup).
-            assert "stub hash lookup" in log
+            # a.txt should have been re-hashed (one hash lookup).
+            assert "hash lookup" in log
         finally:
             proc.stop()
 
@@ -258,7 +258,7 @@ class TestCachingBehavior:
         try:
             wait_for(
                 lambda: (
-                    "stub hash lookup"
+                    "hash lookup"
                     in runtime_paths.log_path.read_text(encoding="utf-8")
                 ),
                 timeout=5.0,
@@ -354,7 +354,7 @@ class TestCliErrorPaths:
         assert "not running" in (result.stderr + result.stdout).lower()
 
     def test_unknown_command_over_socket(self, runtime_paths, env_with_runtime_paths):
-        proc = DaemonProcess(runtime_paths, Config())
+        proc = DaemonProcess(runtime_paths, Config(sync_on_startup=False))
         proc.start()
         try:
 

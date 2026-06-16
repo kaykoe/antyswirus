@@ -21,6 +21,7 @@ class Config:
     log_level: str = "INFO"
     socket_mode: int = 0o660
     quarantine_max_age_days: int = 14
+    sync_on_startup: bool = True
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
@@ -35,4 +36,5 @@ class Config:
             log_level=str(data.get("log_level", "INFO")),
             socket_mode=int(data.get("socket_mode", 0o660)),
             quarantine_max_age_days=int(data.get("quarantine_max_age_days", 14)),
+            sync_on_startup=bool(data.get("sync_on_startup", True)),
         )

@@ -31,7 +31,8 @@ from typing import Any
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
-from antyswirusd.modules import StubHashRepository
+from antyswirusd.database_hash_repo import DatabaseHashRepository, sync_all
+from antyswirusd.hash_db import HashDatabase
 from antyswirusd.monitor import FanotifyMonitor
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
@@ -70,9 +71,12 @@ class Engine:
         self._config = config
         self._cache = ScanCache(paths.cache_db_path)
         self._whitelist: Whitelist = Whitelist(paths.whitelist_db_path)
-        self._hash_repo: Any = (
-            hash_repo if hash_repo is not None else StubHashRepository()
-        )
+        self._hash_db: HashDatabase | None = None
+        if hash_repo is not None:
+            self._hash_repo = hash_repo
+        else:
+            self._hash_db = HashDatabase(paths.hash_db_path)
+            self._hash_repo = DatabaseHashRepository(self._hash_db)
         self._quarantine: Quarantine = (
             quarantine
             if quarantine is not None
@@ -90,6 +94,7 @@ class Engine:
         self._shutdown = asyncio.Event()
         self._stopped = asyncio.Event()
         self._monitor: FanotifyMonitor | None = None
+        self._sync_task: asyncio.Task[None] | None = None
 
     @property
     def cache(self) -> ScanCache:
@@ -123,6 +128,10 @@ class Engine:
         await self._cache.open()
         await self._whitelist.open()
         await self._quarantine.open()
+        if hasattr(self._hash_repo, "open"):
+            await self._hash_repo.open()
+        if self._config.sync_on_startup:
+            self._start_sync()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(
@@ -215,13 +224,22 @@ class Engine:
             await asyncio.gather(*self._rescan_tasks, return_exceptions=True)
         self._rescan_tasks.clear()
 
-        # 4. Drain the queue (best effort).
+        # 4. Cancel the background hash DB sync task.
+        if self._sync_task is not None:
+            self._sync_task.cancel()
+            try:
+                await asyncio.wait_for(self._sync_task, timeout=10)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            self._sync_task = None
+
+        # 5. Drain the queue (best effort).
         try:
             await asyncio.wait_for(self._queue.join(), timeout=30)
         except asyncio.TimeoutError:
             log.warning("queue did not drain in time; closing anyway")
 
-        # 5. Close workers and modules.
+        # 6. Close workers and modules.
         self._queue.close()
         for w in self._workers:
             w.cancel()
@@ -231,7 +249,7 @@ class Engine:
             except (asyncio.CancelledError, Exception):
                 pass
 
-        # 6. Stop the real-time monitor.
+        # 7. Stop the real-time monitor.
         if self._monitor is not None:
             self._monitor.stop()
             self._monitor = None
@@ -282,6 +300,26 @@ class Engine:
             pending_rescans=len(self._rescan_tasks),
             real_time_active=self._monitor is not None and self._monitor.is_running,
         )
+
+    # ------------------------------------------------------------------ #
+    # Hash DB sync machinery                                             #
+    # ------------------------------------------------------------------ #
+
+    def _start_sync(self) -> None:
+        if self._hash_db is None:
+            return
+
+        async def _sync_worker() -> None:
+            assert self._hash_db is not None
+            try:
+                result = await sync_all(self._hash_db)
+                log.info("hash DB sync complete: %s", result)
+            except asyncio.CancelledError:
+                log.info("hash DB sync cancelled")
+            except Exception:
+                log.exception("hash DB sync failed")
+
+        self._sync_task = asyncio.create_task(_sync_worker(), name="hash-db-sync")
 
     # ------------------------------------------------------------------ #
     # Whitelist rescan machinery                                         #

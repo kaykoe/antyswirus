@@ -7,7 +7,8 @@ import threading
 from pathlib import Path
 
 from antyswirusd.cache import ScanCache
-from antyswirusd.modules import StubHashRepository
+from antyswirusd.database_hash_repo import DatabaseHashRepository
+from antyswirusd.hash_db import HashDatabase
 from antyswirusd.quarantine import Quarantine
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.whitelist import Whitelist
@@ -234,7 +235,7 @@ class TestLookupWorker:
         asyncio.run(go())
 
     def test_worker_stub_modules_smoke(self, runtime_paths, scan_root):
-        """End-to-end smoke test of the actual stub modules wired up."""
+        """End-to-end smoke test of the real hash DB wired up."""
 
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
@@ -246,12 +247,15 @@ class TestLookupWorker:
                 runtime_paths.quarantine_db_path,
             )
             await quarantine.open()
+            hash_db = HashDatabase(runtime_paths.hash_db_path)
+            await hash_db.open()
+            hash_repo = DatabaseHashRepository(hash_db)
             try:
                 queue = LookupQueue()
                 worker = LookupWorker(
                     queue,
                     cache,
-                    StubHashRepository(),
+                    hash_repo,
                     quarantine,
                     wl,
                 )
@@ -265,6 +269,7 @@ class TestLookupWorker:
                     await task
                 assert await cache.is_known(a, _fp(a)) is Verdict.UNKNOWN
             finally:
+                await hash_repo.close()
                 await quarantine.close()
                 await wl.close()
                 await cache.close()

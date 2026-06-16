@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
-import pytest
 
 from antyswirus_lib.types import Verdict
 
@@ -19,6 +17,7 @@ class TestDatabaseHashRepository:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             repo = DatabaseHashRepository(db)
+            await repo.open()
             try:
                 result = await repo.lookup_by_hash("0" * 64)
                 assert result.verdict is Verdict.UNKNOWN
@@ -35,12 +34,11 @@ class TestDatabaseHashRepository:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             repo = DatabaseHashRepository(db)
+            await repo.open()
             try:
                 await db.import_malwarebazaar_rows([
                     {
                         "sha256_hash": "a" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
                         "first_seen": "2024-01-01",
                         "file_name": "bad.exe",
                         "file_type": "exe",
@@ -63,6 +61,7 @@ class TestDatabaseHashRepository:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             repo = DatabaseHashRepository(db)
+            await repo.open()
             try:
                 await db.import_virusshare_hashes(["b" * 64])
                 result = await repo.lookup_by_hash("b" * 64)
@@ -80,13 +79,12 @@ class TestDatabaseHashRepository:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             repo = DatabaseHashRepository(db)
+            await repo.open()
             try:
                 await db.import_virusshare_hashes(["c" * 64])
                 await db.import_malwarebazaar_rows([
                     {
                         "sha256_hash": "c" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
                         "first_seen": None,
                         "file_name": None,
                         "file_type": None,
@@ -96,7 +94,7 @@ class TestDatabaseHashRepository:
                 ])
                 result = await repo.lookup_by_hash("c" * 64)
                 assert result.verdict is Verdict.MALICIOUS
-                assert "PriorityMalware" in result.detail
+                assert "PriorityMalware" in (result.detail or "")
             finally:
                 await repo.close()
 
@@ -110,6 +108,7 @@ class TestDatabaseHashRepository:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             repo = DatabaseHashRepository(db)
+            await repo.open()
             await repo.close()
             result = await repo.lookup_by_hash("d" * 64)
             assert result.verdict is Verdict.UNKNOWN

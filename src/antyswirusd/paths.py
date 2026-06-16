@@ -29,6 +29,7 @@ class RuntimePaths:
     pid_path: Path
     cache_db_path: Path
     whitelist_db_path: Path
+    hash_db_path: Path
     quarantine_dir: Path
     quarantine_db_path: Path
     log_path: Path
@@ -46,6 +47,7 @@ class RuntimePaths:
             pid_path=runtime / "antyswirusd.pid",
             cache_db_path=state / "scan_cache.db",
             whitelist_db_path=state / "whitelist.db",
+            hash_db_path=state / "hash.db",
             quarantine_dir=state / "quarantine",
             quarantine_db_path=state / "quarantine.db",
             log_path=log / "antyswirusd.log",

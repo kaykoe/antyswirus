@@ -13,9 +13,7 @@ The database is periodically synced from both sources by the
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from antyswirus_lib.types import HashLookup, Verdict
@@ -35,16 +33,22 @@ class DatabaseHashRepository:
 
     def __init__(self, db: HashDatabase) -> None:
         self._db = db
-        self._closed = False
+
+    async def open(self) -> None:
+        assert self._db is not None
+        await self._db.open()
 
     async def lookup_by_hash(self, content_hash: str) -> HashLookup:
-        if self._closed:
+        db = self._db
+        if db is None:
             return HashLookup(verdict=Verdict.UNKNOWN, detail="repo closed")
-        return await self._db.lookup_by_hash(content_hash)
+        log.debug("hash lookup: sha256=%s", content_hash)
+        return await db.lookup_by_hash(content_hash)
 
     async def close(self) -> None:
-        self._closed = True
-        await self._db.close()
+        db, self._db = self._db, None
+        if db is not None:
+            await db.close()
 
 
 async def sync_all(

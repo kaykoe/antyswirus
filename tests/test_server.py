@@ -21,6 +21,7 @@ def _config() -> Config:
         queue_size=16,
         log_level="WARNING",
         socket_mode=0o600,
+        sync_on_startup=False,
     )
 
 
