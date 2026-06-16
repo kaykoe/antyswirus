@@ -977,9 +977,9 @@ class TestEngineRescanPath:
                         kind="path",
                         value="/nope/does/not/exist",
                     )
-                    assert rm.status == "ok"
+                    assert rm.status == "not_found"
+                    assert rm.error is not None
                     # No row was actually deleted -> rescan NOT scheduled.
-                    assert rm.result["rescan_scheduled"] is False
                     assert engine.rescan_tasks == set()
             finally:
                 await engine.stop()

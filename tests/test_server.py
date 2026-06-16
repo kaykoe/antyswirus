@@ -232,7 +232,7 @@ class TestWhitelistCommands:
 
         asyncio.run(go())
 
-    def test_remove_unknown_entry_is_ok(self, runtime_paths):
+    def test_remove_unknown_entry_returns_not_found(self, runtime_paths):
         async def go():
             engine = _start_engine(runtime_paths, _config())
             await engine.start()
@@ -245,8 +245,9 @@ class TestWhitelistCommands:
                         kind="sha256",
                         value="0" * 64,
                     )
-                # Removing a non-existent entry is a no-op but must succeed.
-                assert resp.status == "ok"
+                # Removing a non-existent entry must report it was not found.
+                assert resp.status == "not_found"
+                assert resp.error is not None
             finally:
                 await engine.stop()
 

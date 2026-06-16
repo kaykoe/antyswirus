@@ -201,12 +201,14 @@ class IpcServer:
                 status="error",
                 error=f"unknown kind {kind_raw!r}; expected one of: path, sha256",
             )
-        if kind is WhitelistKind.PATH and not value.startswith("/"):
-            return Response(
-                id="",
-                status="error",
-                error="path entries must be absolute (start with '/')",
-            )
+        if kind is WhitelistKind.PATH:
+            value = str(Path(value))
+            if not value.startswith("/"):
+                return Response(
+                    id="",
+                    status="error",
+                    error="path entries must be absolute (start with '/')",
+                )
         if kind is WhitelistKind.SHA256 and len(value) != 64:
             return Response(
                 id="",
@@ -245,13 +247,18 @@ class IpcServer:
         removed = await self._engine.whitelist.remove(parsed)
         if removed:
             self._engine.schedule_rescan(parsed)
+            return Response(
+                id=request_id,
+                status="ok",
+                result={
+                    "removed": {"kind": parsed.kind.value, "value": parsed.value},
+                    "rescan_scheduled": True,
+                },
+            )
         return Response(
             id=request_id,
-            status="ok",
-            result={
-                "removed": {"kind": parsed.kind.value, "value": parsed.value},
-                "rescan_scheduled": removed,
-            },
+            status="not_found",
+            error=f"no whitelist entry found for {parsed.kind.value}: {parsed.value}",
         )
 
     async def _whitelist_list(self, request_id: str) -> Response:
