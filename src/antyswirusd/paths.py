@@ -2,9 +2,10 @@
 
 Defaults follow the Linux FHS::
 
-    /run/antyswirus/                 runtime (socket, pidfile)   tmpfs
-    /var/lib/antyswirus/             persistent state (cache db)  root only
-    /var/log/antyswirus/             logs                         root only
+    /run/antyswirus/                 runtime (socket, pidfile)        tmpfs
+    /var/lib/antyswirus/             persistent state (db files)      root only
+    /var/lib/antyswirus/quarantine/  isolated files (mode 0o700)      root only
+    /var/log/antyswirus/             logs                             root only
 
 All locations are overridable via environment variables, which lets
 the test suite and the systemd unit (``RuntimeDirectory=``,
@@ -28,8 +29,8 @@ class RuntimePaths:
     pid_path: Path
     cache_db_path: Path
     whitelist_db_path: Path
-    quarantine_db_path: Path
     quarantine_dir: Path
+    quarantine_db_path: Path
     log_path: Path
 
     @classmethod
@@ -45,8 +46,8 @@ class RuntimePaths:
             pid_path=runtime / "antyswirusd.pid",
             cache_db_path=state / "scan_cache.db",
             whitelist_db_path=state / "whitelist.db",
-            quarantine_db_path=state / "quarantine.db",
             quarantine_dir=state / "quarantine",
+            quarantine_db_path=state / "quarantine.db",
             log_path=log / "antyswirusd.log",
         )
 
@@ -55,4 +56,7 @@ class RuntimePaths:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        # Quarantine dir is created with restrictive perms; the daemon
+        # opens it (and re-applies the perms) at startup so manual
+        # pre-creation with looser perms is overridden.
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

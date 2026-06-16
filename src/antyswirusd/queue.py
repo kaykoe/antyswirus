@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from antyswirus_lib.hashing import compute_sha256
-from antyswirus_lib.protocols import HashRepository, Quarantine, Whitelist
+from antyswirusd.quarantine import Quarantine
+from antyswirusd.whitelist import Whitelist
+from antyswirus_lib.types import HashRepository
 from antyswirus_lib.types import FileFingerprint, ScanResult, Verdict
 
 if TYPE_CHECKING:
@@ -146,7 +148,7 @@ class LookupWorker:
         )
 
         if result.verdict is Verdict.MALICIOUS:
-            qid = await self._quarantine.quarantine(req.path, result)
+            qid = await self._quarantine.quarantine(result)
             log.warning(
                 "quarantined %s as %s (%s)",
                 req.path,

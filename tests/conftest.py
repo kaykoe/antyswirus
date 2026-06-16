@@ -22,9 +22,11 @@ def make_paths(root: Path) -> RuntimePaths:
     runtime_dir = root / "run"
     state_dir = root / "var" / "lib"
     log_dir = root / "var" / "log"
+    quarantine_dir = state_dir / "quarantine"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
     return RuntimePaths(
         runtime_dir=runtime_dir,
         state_dir=state_dir,
@@ -33,8 +35,8 @@ def make_paths(root: Path) -> RuntimePaths:
         pid_path=runtime_dir / "antyswirusd.pid",
         cache_db_path=state_dir / "scan_cache.db",
         whitelist_db_path=state_dir / "whitelist.db",
+        quarantine_dir=quarantine_dir,
         quarantine_db_path=state_dir / "quarantine.db",
-        quarantine_dir=state_dir / "quarantine",
         log_path=log_dir / "antyswirusd.log",
     )
 

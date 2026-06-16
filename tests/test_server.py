@@ -10,6 +10,7 @@ import pytest
 
 from antyswirusd.config import Config
 from antyswirusd.engine import Engine
+from antyswirus_lib import Verdict
 from antyswirus_lib.client import AntyswirusClient
 from antyswirus_lib.ipc import ProtocolError, read_message
 
@@ -42,10 +43,6 @@ class TestStatus:
                 assert resp.result["workers"] == 1
                 assert resp.result["cache_generation"] == 0
                 assert resp.result["active_scans"] == 0
-                # New fields: last_scan_at is None on a fresh daemon,
-                # quarantine_count is 0 because nothing is quarantined.
-                assert resp.result["last_scan_at"] is None
-                assert resp.result["quarantine_count"] == 0
             finally:
                 await engine.stop()
 
@@ -128,132 +125,6 @@ class TestUnknownCommand:
                     resp = await c.call("frobnicate")
                 assert resp.status == "error"
                 assert "frobnicate" in (resp.error or "")
-            finally:
-                await engine.stop()
-
-        asyncio.run(go())
-
-
-class TestQuarantineCommands:
-    def test_quarantine_round_trip(self, runtime_paths, tmp_path):
-        """End-to-end: quarantine, list, restore, delete."""
-
-        async def go():
-            engine = _start_engine(runtime_paths, _config())
-            await engine.start()
-            try:
-                payload = tmp_path / "evil.bin"
-                payload.write_bytes(b"definitely-not-malicious")
-                from antyswirus_lib import ScanResult, Verdict
-
-                qid = await engine.quarantine.quarantine(
-                    payload,
-                    ScanResult(
-                        path=payload,
-                        verdict=Verdict.MALICIOUS,
-                        detail="test",
-                    ),
-                )
-                # Quarantine count via status IPC.
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call("status")
-                assert resp.result["quarantine_count"] == 1
-
-                # List via IPC.
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call("quarantine_list")
-                assert resp.status == "ok"
-                items = resp.result["items"]
-                assert len(items) == 1
-                assert items[0]["id"] == qid
-                assert items[0]["original_path"] == str(payload)
-                assert items[0]["verdict"] == "malicious"
-
-                # Restore via IPC.
-                restored = tmp_path / "restored.bin"
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call(
-                        "quarantine_restore",
-                        quarantine_id=qid,
-                        dest=str(restored),
-                    )
-                assert resp.status == "ok"
-                assert resp.result["restored"] == qid
-                assert restored.read_bytes() == b"definitely-not-malicious"
-                assert not (runtime_paths.quarantine_dir / qid).exists()
-
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call("status")
-                assert resp.result["quarantine_count"] == 0
-            finally:
-                await engine.stop()
-
-        asyncio.run(go())
-
-    def test_quarantine_delete_removes_payload(self, runtime_paths, tmp_path):
-        async def go():
-            engine = _start_engine(runtime_paths, _config())
-            await engine.start()
-            try:
-                payload = tmp_path / "evil.bin"
-                payload.write_bytes(b"x")
-                from antyswirus_lib import ScanResult, Verdict
-
-                qid = await engine.quarantine.quarantine(
-                    payload,
-                    ScanResult(path=payload, verdict=Verdict.MALICIOUS),
-                )
-                assert (runtime_paths.quarantine_dir / qid).exists()
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call("quarantine_delete", quarantine_id=qid)
-                assert resp.status == "ok"
-                assert not (runtime_paths.quarantine_dir / qid).exists()
-            finally:
-                await engine.stop()
-
-        asyncio.run(go())
-
-    def test_restore_unknown_id_returns_error(self, runtime_paths, tmp_path):
-        async def go():
-            engine = _start_engine(runtime_paths, _config())
-            await engine.start()
-            try:
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call(
-                        "quarantine_restore",
-                        quarantine_id="nonexistent",
-                        dest=str(tmp_path / "x"),
-                    )
-                assert resp.status == "error"
-            finally:
-                await engine.stop()
-
-        asyncio.run(go())
-
-    def test_delete_unknown_id_returns_error(self, runtime_paths):
-        async def go():
-            engine = _start_engine(runtime_paths, _config())
-            await engine.start()
-            try:
-                async with await AntyswirusClient.connect(
-                    runtime_paths.socket_path
-                ) as c:
-                    resp = await c.call(
-                        "quarantine_delete", quarantine_id="nonexistent"
-                    )
-                assert resp.status == "error"
             finally:
                 await engine.stop()
 
@@ -376,6 +247,231 @@ class TestWhitelistCommands:
                     )
                 # Removing a non-existent entry is a no-op but must succeed.
                 assert resp.status == "ok"
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+
+class TestQuarantineCommands:
+    """End-to-end IPC tests for the quarantine commands.
+
+    Wires a real :class:`Quarantine` and a recording
+    ``HashRepository`` that flags everything as malicious, then walks
+    a malicious file through quarantine_list / quarantine_restore /
+    quarantine_delete.
+    """
+
+    def _start_with_malicious_repo(self, runtime_paths, config):
+        from antyswirus_lib.types import HashLookup
+
+        class _MaliciousHashRepo:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            async def lookup_by_hash(self, content_hash: str) -> HashLookup:
+                self.calls.append(content_hash)
+                return HashLookup(verdict=Verdict.MALICIOUS, detail="eicar")
+
+            async def close(self) -> None:
+                pass
+
+        repo = _MaliciousHashRepo()
+        engine = Engine(runtime_paths, config, hash_repo=repo)
+        engine._repo = repo  # expose for assertions
+        return engine, repo
+
+    def test_malicious_file_is_quarantined_then_listed(self, runtime_paths, scan_root):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                a = scan_root / "a.txt"
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    await c.call("scan", path=str(a))
+                    list_resp = await c.call("quarantine_list")
+                assert list_resp.status == "ok"
+                items = list_resp.result["items"]
+                assert len(items) == 1
+                item = items[0]
+                assert item["original_path"] == str(a)
+                assert item["verdict"] == "malicious"
+                assert item["detail"] == "eicar"
+                assert item["quarantined_at"] > 0
+                # Pagination fields present.
+                assert list_resp.result["offset"] == 0
+                assert list_resp.result["limit"] == 100
+                assert list_resp.result["total"] == 1
+                # File was moved out of scan_root.
+                assert not a.exists()
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_restore_returns_file(self, runtime_paths, scan_root):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                a = scan_root / "a.txt"
+                original_content = a.read_bytes()
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    await c.call("scan", path=str(a))
+                    list_resp = await c.call("quarantine_list")
+                qid = list_resp.result["items"][0]["id"]
+
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    restore_resp = await c.call("quarantine_restore", id=qid)
+                assert restore_resp.status == "ok"
+                assert restore_resp.result == {"restored": qid}
+                # File is back at the original path with the original bytes.
+                assert a.exists()
+                assert a.read_bytes() == original_content
+                # Row was removed.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    list_after = await c.call("quarantine_list")
+                assert list_after.result["items"] == []
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_delete_removes_file(self, runtime_paths, scan_root):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                a = scan_root / "a.txt"
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    await c.call("scan", path=str(a))
+                    list_resp = await c.call("quarantine_list")
+                qid = list_resp.result["items"][0]["id"]
+                # File is in the quarantine dir.
+                stored = runtime_paths.quarantine_dir / next(
+                    n
+                    for n in __import__("os").listdir(runtime_paths.quarantine_dir)
+                    if n.startswith(qid)
+                )
+                assert stored.exists()
+
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    delete_resp = await c.call("quarantine_delete", id=qid)
+                assert delete_resp.status == "ok"
+                assert delete_resp.result == {"deleted": qid}
+                assert not stored.exists()
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    list_after = await c.call("quarantine_list")
+                assert list_after.result["items"] == []
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_restore_unknown_id_errors(self, runtime_paths):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("quarantine_restore", id="deadbeef")
+                assert resp.status == "error"
+                assert "no such quarantine id" in (resp.error or "")
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_delete_unknown_id_errors(self, runtime_paths):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("quarantine_delete", id="deadbeef")
+                assert resp.status == "error"
+                assert "no such quarantine id" in (resp.error or "")
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_restore_refuses_destination_collision(
+        self, runtime_paths, scan_root
+    ):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                a = scan_root / "a.txt"
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    await c.call("scan", path=str(a))
+                    list_resp = await c.call("quarantine_list")
+                qid = list_resp.result["items"][0]["id"]
+                # Re-create a file at the original path: blocks restore.
+                a.write_bytes(b"unrelated-content")
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    resp = await c.call("quarantine_restore", id=qid)
+                assert resp.status == "error"
+                assert "destination already exists" in (resp.error or "")
+                # The row is still there.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    list_after = await c.call("quarantine_list")
+                assert len(list_after.result["items"]) == 1
+            finally:
+                await engine.stop()
+
+        asyncio.run(go())
+
+    def test_quarantine_list_pagination(self, runtime_paths, scan_root):
+        async def go():
+            engine, _repo = self._start_with_malicious_repo(runtime_paths, _config())
+            await engine.start()
+            try:
+                # Scan a directory with 3 files → 3 quarantined entries.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    await c.call("scan", path=str(scan_root))
+                # limit=2 → 2 items, total=3.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    page1 = await c.call("quarantine_list", limit=2, offset=0)
+                assert page1.status == "ok"
+                assert len(page1.result["items"]) == 2
+                assert page1.result["total"] == 3
+                assert page1.result["limit"] == 2
+                # offset=2 → 1 remaining item.
+                async with await AntyswirusClient.connect(
+                    runtime_paths.socket_path
+                ) as c:
+                    page2 = await c.call("quarantine_list", limit=2, offset=2)
+                assert len(page2.result["items"]) == 1
             finally:
                 await engine.stop()
 

@@ -31,14 +31,16 @@ from typing import Any
 
 from antyswirusd.cache import ScanCache
 from antyswirusd.config import Config
-from antyswirusd.modules import PersistentQuarantine, StubHashRepository
+from antyswirusd.modules import StubHashRepository
+from antyswirusd.monitor import FanotifyMonitor
 from antyswirusd.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
+from antyswirusd.quarantine import Quarantine
 from antyswirusd.scanner import WalkScanner
 from antyswirusd.server import IpcServer
-from antyswirusd.whitelist import WhitelistDb
-from antyswirus_lib.protocols import Whitelist, WhitelistEntry, WhitelistKind
-from antyswirus_lib.types import FileFingerprint
+from antyswirusd.whitelist import Whitelist
+
+from antyswirus_lib.types import FileFingerprint, WhitelistEntry, WhitelistKind
 
 log = logging.getLogger(__name__)
 
@@ -52,8 +54,7 @@ class EngineStatus:
     workers: int
     active_scans: int
     pending_rescans: int
-    last_scan_at: float | None
-    quarantine_count: int
+    real_time_active: bool
 
 
 class Engine:
@@ -68,14 +69,18 @@ class Engine:
         self._paths = paths
         self._config = config
         self._cache = ScanCache(paths.cache_db_path)
-        self._whitelist: Whitelist = WhitelistDb(paths.whitelist_db_path)
+        self._whitelist: Whitelist = Whitelist(paths.whitelist_db_path)
         self._hash_repo: Any = (
             hash_repo if hash_repo is not None else StubHashRepository()
         )
-        self._quarantine: Any = (
+        self._quarantine: Quarantine = (
             quarantine
             if quarantine is not None
-            else PersistentQuarantine(paths.quarantine_db_path, paths.quarantine_dir)
+            else Quarantine(
+                paths.quarantine_dir,
+                paths.quarantine_db_path,
+                max_age_days=config.quarantine_max_age_days,
+            )
         )
         self._queue = LookupQueue(maxsize=config.queue_size)
         self._workers: list[asyncio.Task[None]] = []
@@ -84,6 +89,7 @@ class Engine:
         self._server: IpcServer | None = None
         self._shutdown = asyncio.Event()
         self._stopped = asyncio.Event()
+        self._monitor: FanotifyMonitor | None = None
 
     @property
     def cache(self) -> ScanCache:
@@ -98,6 +104,10 @@ class Engine:
         return self._whitelist
 
     @property
+    def quarantine(self) -> Quarantine:
+        return self._quarantine
+
+    @property
     def config(self) -> Config:
         return self._config
 
@@ -106,18 +116,13 @@ class Engine:
         return self._paths
 
     @property
-    def quarantine(self) -> Any:
-        return self._quarantine
-
-    @property
     def rescan_tasks(self) -> set[asyncio.Task[None]]:
         return self._rescan_tasks
 
     async def start(self) -> None:
         await self._cache.open()
         await self._whitelist.open()
-        if hasattr(self._quarantine, "open"):
-            await self._quarantine.open()
+        await self._quarantine.open()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(
@@ -151,11 +156,27 @@ class Engine:
 
         self._server = IpcServer(self._paths.socket_path, self)
         await self._server.start()
+
+        # 4. Start real-time fanotify monitor if roots are configured.
+        if self._config.scan_roots:
+            self._monitor = FanotifyMonitor(
+                self._queue,
+                watch_roots=self._config.scan_roots,
+                cache=self._cache,
+                whitelist=self._whitelist,
+                hash_repo=self._hash_repo,
+                loop=asyncio.get_running_loop(),
+            )
+            self._monitor.start()
+        else:
+            log.info("no scan_roots configured; real-time monitoring inactive")
+
         log.info(
-            "engine started: workers=%d queue=%d roots=%s",
+            "engine started: workers=%d queue=%d roots=%s real_time=%s",
             self._config.worker_count,
             self._config.queue_size,
             [str(r) for r in self._config.scan_roots],
+            self._monitor is not None and self._monitor.is_running,
         )
 
     async def wait_running(self) -> None:
@@ -210,6 +231,11 @@ class Engine:
             except (asyncio.CancelledError, Exception):
                 pass
 
+        # 6. Stop the real-time monitor.
+        if self._monitor is not None:
+            self._monitor.stop()
+            self._monitor = None
+
         await self._cache.close()
         await self._hash_repo.close()
         await self._quarantine.close()
@@ -246,15 +272,6 @@ class Engine:
         return {"path": str(path), "queued": True}
 
     def status(self) -> EngineStatus:
-        """Return a partial status snapshot with the lazy fields unset.
-
-        This method does not touch the SQLite-backed modules
-        (``cache.last_scan_at`` and ``quarantine.list``) so it can
-        run synchronously from signal handlers, debug log lines, and
-        other places where the event loop is unavailable. The IPC
-        handler uses :meth:`rich_status` instead, which fills those
-        fields.
-        """
         return EngineStatus(
             pid=os.getpid(),
             cache_generation=self._cache.generation,
@@ -263,32 +280,7 @@ class Engine:
             workers=len(self._workers),
             active_scans=len(self._scanner_tasks),
             pending_rescans=len(self._rescan_tasks),
-            last_scan_at=None,
-            quarantine_count=0,
-        )
-
-    async def rich_status(self) -> EngineStatus:
-        """Async variant of :meth:`status` that also fills the lazy fields.
-
-        ``last_scan_at`` requires a SQLite query, and
-        ``quarantine_count`` is computed by calling
-        :meth:`quarantine.list`. Both go through ``aiosqlite`` and
-        are awaited directly; the rest of the snapshot comes from
-        the cheap in-memory state in :meth:`status`.
-        """
-        base = self.status()
-        last_scan_at = await self._cache.last_scan_at()
-        items = await self._quarantine.list()
-        return EngineStatus(
-            pid=base.pid,
-            cache_generation=base.cache_generation,
-            cache_version=base.cache_version,
-            queue_size=base.queue_size,
-            workers=base.workers,
-            active_scans=base.active_scans,
-            pending_rescans=base.pending_rescans,
-            last_scan_at=last_scan_at,
-            quarantine_count=len(items),
+            real_time_active=self._monitor is not None and self._monitor.is_running,
         )
 
     # ------------------------------------------------------------------ #

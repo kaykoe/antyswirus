@@ -16,8 +16,8 @@ def _kwargs(tmp_path: Path) -> dict:
         pid_path=tmp_path / "r" / "antyswirusd.pid",
         cache_db_path=tmp_path / "s" / "scan_cache.db",
         whitelist_db_path=tmp_path / "s" / "whitelist.db",
-        quarantine_db_path=tmp_path / "s" / "quarantine.db",
         quarantine_dir=tmp_path / "s" / "quarantine",
+        quarantine_db_path=tmp_path / "s" / "quarantine.db",
         log_path=tmp_path / "l" / "antyswirusd.log",
     )
 
@@ -38,8 +38,8 @@ class TestDefault:
         assert p.pid_path == Path("/run/antyswirus/antyswirusd.pid")
         assert p.cache_db_path == Path("/var/lib/antyswirus/scan_cache.db")
         assert p.whitelist_db_path == Path("/var/lib/antyswirus/whitelist.db")
-        assert p.quarantine_db_path == Path("/var/lib/antyswirus/quarantine.db")
         assert p.quarantine_dir == Path("/var/lib/antyswirus/quarantine")
+        assert p.quarantine_db_path == Path("/var/lib/antyswirus/quarantine.db")
         assert p.log_path == Path("/var/log/antyswirus/antyswirusd.log")
 
     def test_env_overrides(self, monkeypatch, tmp_path: Path):
@@ -54,8 +54,8 @@ class TestDefault:
         assert p.pid_path == tmp_path / "r" / "antyswirusd.pid"
         assert p.cache_db_path == tmp_path / "s" / "scan_cache.db"
         assert p.whitelist_db_path == tmp_path / "s" / "whitelist.db"
-        assert p.quarantine_db_path == tmp_path / "s" / "quarantine.db"
         assert p.quarantine_dir == tmp_path / "s" / "quarantine"
+        assert p.quarantine_db_path == tmp_path / "s" / "quarantine.db"
         assert p.log_path == tmp_path / "l" / "antyswirusd.log"
 
 
@@ -67,6 +67,12 @@ class TestEnsure:
         assert p.runtime_dir.is_dir()
         assert p.state_dir.is_dir()
         assert p.log_dir.is_dir()
+        assert p.quarantine_dir.is_dir()
+        # Quarantine dir is mode 0o700 (root-only). On a umask-respecting
+        # system the directory's effective mode is 0o700 & ~umask. We just
+        # check that the perms are not the default 0o755.
+        mode = p.quarantine_dir.stat().st_mode & 0o777
+        assert mode != 0o755
 
     def test_idempotent(self, tmp_path: Path):
         p = RuntimePaths(**_kwargs(tmp_path))

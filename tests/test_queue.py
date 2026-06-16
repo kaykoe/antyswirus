@@ -7,11 +7,12 @@ import threading
 from pathlib import Path
 
 from antyswirusd.cache import ScanCache
-from antyswirusd.modules import PersistentQuarantine, StubHashRepository
+from antyswirusd.modules import StubHashRepository
+from antyswirusd.quarantine import Quarantine
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
-from antyswirusd.whitelist import WhitelistDb
+from antyswirusd.whitelist import Whitelist
 from antyswirus_lib import Verdict
-from antyswirus_lib.protocols import WhitelistEntry, WhitelistKind
+from antyswirus_lib.types import QuarantinedFile, WhitelistEntry, WhitelistKind
 from antyswirus_lib.types import FileFingerprint, HashLookup, ScanResult
 
 
@@ -37,25 +38,31 @@ class _RecordingHashRepo:
 
 class _RecordingQuarantine:
     def __init__(self) -> None:
-        self.calls: list[tuple[Path, ScanResult]] = []
+        self.calls: list[ScanResult] = []
         self._counter = 0
 
-    async def quarantine(self, path: Path, result: ScanResult) -> str:
-        self.calls.append((path, result))
+    async def open(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def quarantine(self, result: ScanResult) -> str:
+        self.calls.append(result)
         self._counter += 1
         return f"q{self._counter}"
 
-    async def restore(self, qid, dest):
+    async def restore(self, qid: str) -> None:
         pass
 
-    async def list(self):
+    async def list(self, *, offset: int = 0, limit: int = 100) -> list[QuarantinedFile]:
         return []
 
-    async def delete(self, qid):
+    async def delete(self, qid: str) -> None:
         pass
 
-    async def close(self):
-        pass
+    async def prune(self) -> int:
+        return 0
 
 
 class TestLookupQueue:
@@ -126,7 +133,7 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 hash_repo = _RecordingHashRepo()
@@ -155,7 +162,7 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 hash_repo = _RecordingHashRepo()
@@ -178,8 +185,8 @@ class TestLookupWorker:
                     queue.close()
                     await task
                 assert len(quarantine.calls) == 1
-                assert quarantine.calls[0][0] == a
-                assert quarantine.calls[0][1].verdict is Verdict.MALICIOUS
+                assert quarantine.calls[0].path == a
+                assert quarantine.calls[0].verdict is Verdict.MALICIOUS
             finally:
                 await wl.close()
                 await cache.close()
@@ -201,7 +208,7 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 hash_repo = ExplodingHashRepo()
@@ -232,10 +239,11 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
-            quarantine = PersistentQuarantine(
-                runtime_paths.quarantine_db_path, runtime_paths.quarantine_dir
+            quarantine = Quarantine(
+                runtime_paths.quarantine_dir,
+                runtime_paths.quarantine_db_path,
             )
             await quarantine.open()
             try:
@@ -257,9 +265,9 @@ class TestLookupWorker:
                     await task
                 assert await cache.is_known(a, _fp(a)) is Verdict.UNKNOWN
             finally:
+                await quarantine.close()
                 await wl.close()
                 await cache.close()
-                await quarantine.close()
 
         asyncio.run(go())
 
@@ -269,7 +277,7 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 hash_repo = _RecordingHashRepo()
@@ -309,7 +317,7 @@ class TestLookupWorker:
         async def go():
             cache = ScanCache(runtime_paths.cache_db_path)
             await cache.open()
-            wl = WhitelistDb(runtime_paths.whitelist_db_path)
+            wl = Whitelist(runtime_paths.whitelist_db_path)
             await wl.open()
             try:
                 hash_repo = _RecordingHashRepo()

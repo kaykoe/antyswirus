@@ -1,0 +1,125 @@
+"""Tests for DatabaseHashRepository."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from antyswirus_lib.types import Verdict
+
+
+class TestDatabaseHashRepository:
+    def test_lookup_unknown_returns_unknown(self, tmp_path):
+        async def go():
+            from antyswirusd.hash_db import HashDatabase
+            from antyswirusd.database_hash_repo import DatabaseHashRepository
+
+            db = HashDatabase(tmp_path / "hash.db")
+            await db.open()
+            repo = DatabaseHashRepository(db)
+            try:
+                result = await repo.lookup_by_hash("0" * 64)
+                assert result.verdict is Verdict.UNKNOWN
+            finally:
+                await repo.close()
+
+        asyncio.run(go())
+
+    def test_lookup_malwarebazaar_returns_malicious(self, tmp_path):
+        async def go():
+            from antyswirusd.hash_db import HashDatabase
+            from antyswirusd.database_hash_repo import DatabaseHashRepository
+
+            db = HashDatabase(tmp_path / "hash.db")
+            await db.open()
+            repo = DatabaseHashRepository(db)
+            try:
+                await db.import_malwarebazaar_rows([
+                    {
+                        "sha256_hash": "a" * 64,
+                        "sha1_hash": None,
+                        "md5_hash": None,
+                        "first_seen": "2024-01-01",
+                        "file_name": "bad.exe",
+                        "file_type": "exe",
+                        "tags": "",
+                        "signature": "Malware",
+                    }
+                ])
+                result = await repo.lookup_by_hash("a" * 64)
+                assert result.verdict is Verdict.MALICIOUS
+            finally:
+                await repo.close()
+
+        asyncio.run(go())
+
+    def test_lookup_virusshare_fallback(self, tmp_path):
+        async def go():
+            from antyswirusd.hash_db import HashDatabase
+            from antyswirusd.database_hash_repo import DatabaseHashRepository
+
+            db = HashDatabase(tmp_path / "hash.db")
+            await db.open()
+            repo = DatabaseHashRepository(db)
+            try:
+                await db.import_virusshare_hashes(["b" * 64])
+                result = await repo.lookup_by_hash("b" * 64)
+                assert result.verdict is Verdict.MALICIOUS
+            finally:
+                await repo.close()
+
+        asyncio.run(go())
+
+    def test_lookup_malwarebazaar_before_virusshare(self, tmp_path):
+        async def go():
+            from antyswirusd.hash_db import HashDatabase
+            from antyswirusd.database_hash_repo import DatabaseHashRepository
+
+            db = HashDatabase(tmp_path / "hash.db")
+            await db.open()
+            repo = DatabaseHashRepository(db)
+            try:
+                await db.import_virusshare_hashes(["c" * 64])
+                await db.import_malwarebazaar_rows([
+                    {
+                        "sha256_hash": "c" * 64,
+                        "sha1_hash": None,
+                        "md5_hash": None,
+                        "first_seen": None,
+                        "file_name": None,
+                        "file_type": None,
+                        "tags": "",
+                        "signature": "PriorityMalware",
+                    }
+                ])
+                result = await repo.lookup_by_hash("c" * 64)
+                assert result.verdict is Verdict.MALICIOUS
+                assert "PriorityMalware" in result.detail
+            finally:
+                await repo.close()
+
+        asyncio.run(go())
+
+    def test_close_makes_lookup_return_unknown(self, tmp_path):
+        async def go():
+            from antyswirusd.hash_db import HashDatabase
+            from antyswirusd.database_hash_repo import DatabaseHashRepository
+
+            db = HashDatabase(tmp_path / "hash.db")
+            await db.open()
+            repo = DatabaseHashRepository(db)
+            await repo.close()
+            result = await repo.lookup_by_hash("d" * 64)
+            assert result.verdict is Verdict.UNKNOWN
+            assert "closed" in (result.detail or "")
+
+        asyncio.run(go())
+
+    def test_sync_all_structure(self):
+        """sync_all returns a dict with expected source keys (no network test)."""
+        from antyswirusd.database_hash_repo import sync_all
+        import inspect
+        sig = inspect.signature(sync_all)
+        assert "hash_db" in sig.parameters

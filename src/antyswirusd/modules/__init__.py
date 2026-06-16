@@ -1,11 +1,10 @@
-"""Default implementations of the engine's pluggable modules.
+"""In-memory implementations of the engine's pluggable modules.
 
 They satisfy the Protocols in ``antyswirus_lib`` so the engine can
-run end-to-end. The hash repository is still a stub; the quarantine
-is now a SQLite-backed implementation that persists across restarts.
+run end-to-end. Each one logs every call at DEBUG and returns the
+cheapest answer that lets the pipeline continue.
 """
 
 from antyswirusd.modules.hash_repository import StubHashRepository
-from antyswirusd.modules.quarantine import PersistentQuarantine, StubQuarantine
 
-__all__ = ["PersistentQuarantine", "StubHashRepository", "StubQuarantine"]
+__all__ = ["StubHashRepository"]

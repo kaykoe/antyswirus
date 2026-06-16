@@ -162,26 +162,34 @@ def whitelist_list(ctx: Context) -> None:
         typer.echo(f"{kind:6s}  {val}{note}")
 
 
-def quarantine_list(ctx: Context) -> None:
-    """List quarantined files (not yet implemented)."""
-    r = asyncio.run(_call("quarantine_list"))
+def quarantine_list(
+    ctx: Context,
+    offset: int = typer.Option(0, "--offset", help="Skip the first N entries."),
+    limit: int = typer.Option(
+        100, "--limit", help="Page size; clamped to the server maximum."
+    ),
+) -> None:
+    """List quarantined files."""
+    r = asyncio.run(_call("quarantine_list", offset=offset, limit=limit))
     items = r.get("items", [])
     if not items:
         typer.echo("quarantine is empty")
         return
     for it in items:
         typer.echo(f"{it.get('id')}  {it.get('original_path')}  {it.get('verdict')}")
+    if r.get("total") is not None:
+        typer.echo(
+            f"-- showing {len(items)} of {r['total']} "
+            f"(offset={r.get('offset', offset)}, limit={r.get('limit', limit)})"
+        )
 
 
 def quarantine_restore(
     ctx: Context,
     quarantine_id: str = typer.Argument(..., help="Quarantine id to restore."),
-    dest: Path = typer.Argument(..., help="Destination path."),
 ) -> None:
-    """Restore a quarantined file to ``dest`` (not yet implemented)."""
-    r = asyncio.run(
-        _call("quarantine_restore", quarantine_id=quarantine_id, dest=str(dest))
-    )
+    """Restore a quarantined file to its original path."""
+    r = asyncio.run(_call("quarantine_restore", id=quarantine_id))
     typer.echo(f"ok: {r}")
 
 
@@ -189,8 +197,8 @@ def quarantine_delete(
     ctx: Context,
     quarantine_id: str = typer.Argument(..., help="Quarantine id to delete."),
 ) -> None:
-    """Permanently delete a quarantined file (not yet implemented)."""
-    r = asyncio.run(_call("quarantine_delete", quarantine_id=quarantine_id))
+    """Permanently delete a quarantined file."""
+    r = asyncio.run(_call("quarantine_delete", id=quarantine_id))
     typer.echo(f"ok: {r}")
 
 
