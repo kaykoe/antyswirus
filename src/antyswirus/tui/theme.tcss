@@ -34,7 +34,7 @@ Screen {
 }
 
 .stat-label {
-    color: #5C6F62;
+    color: #0FFF6B;
     width: auto;
     height: 1;
     padding: 0 1 0 0;
@@ -75,6 +75,7 @@ Screen {
     background: #08120C;
     color: #5C6F62;
     padding: 0 1;
+    content-align: center middle;
 }
 
 .keybind-key {
@@ -166,4 +167,9 @@ DataTable > .datatable--header {
     width: 100%;
     content-align: center middle;
     margin: 1 0;
+}
+
+#quarantine-wrap {
+    width: 80;
+    height: 1fr;
 }
