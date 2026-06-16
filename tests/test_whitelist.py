@@ -75,6 +75,7 @@ def _config() -> Config:
         log_level="WARNING",
         socket_mode=0o600,
         sync_on_startup=False,
+        mb_api_key="test-key",
     )
 
 

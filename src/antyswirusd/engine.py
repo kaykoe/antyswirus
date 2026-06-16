@@ -56,6 +56,7 @@ class EngineStatus:
     active_scans: int
     pending_rescans: int
     real_time_active: bool
+    syncing: bool
 
 
 class Engine:
@@ -95,6 +96,8 @@ class Engine:
         self._stopped = asyncio.Event()
         self._monitor: FanotifyMonitor | None = None
         self._sync_task: asyncio.Task[None] | None = None
+        self._syncing = False
+        self._custom_hash_repo = hash_repo is not None
 
     @property
     def cache(self) -> ScanCache:
@@ -124,6 +127,10 @@ class Engine:
     def rescan_tasks(self) -> set[asyncio.Task[None]]:
         return self._rescan_tasks
 
+    @property
+    def syncing(self) -> bool:
+        return self._syncing
+
     async def start(self) -> None:
         await self._cache.open()
         await self._whitelist.open()
@@ -131,7 +138,7 @@ class Engine:
         if hasattr(self._hash_repo, "open"):
             await self._hash_repo.open()
         if self._config.sync_on_startup:
-            self._start_sync()
+            await self._run_sync()
         self._workers = [
             asyncio.create_task(
                 LookupWorker(
@@ -224,7 +231,7 @@ class Engine:
             await asyncio.gather(*self._rescan_tasks, return_exceptions=True)
         self._rescan_tasks.clear()
 
-        # 4. Cancel the background hash DB sync task.
+        # 4. Cancel the background hash DB sync (should already be done).
         if self._sync_task is not None:
             self._sync_task.cancel()
             try:
@@ -267,6 +274,13 @@ class Engine:
         Spawns a scanner task and waits for it to finish walking and
         for all of its submissions to drain through the worker pool.
         """
+        if self._syncing:
+            raise RuntimeError("scanning is blocked while hash DB sync is in progress")
+        if not self._config.mb_api_key and not self._custom_hash_repo:
+            raise RuntimeError(
+                "MalwareBazaar API key is required for scanning. "
+                "Set ANTYSWIRUS_MB_API_KEY or configure mb_api_key in the TOML config."
+            )
         if not path.exists():
             raise FileNotFoundError(path)
         task = asyncio.create_task(
@@ -299,27 +313,32 @@ class Engine:
             active_scans=len(self._scanner_tasks),
             pending_rescans=len(self._rescan_tasks),
             real_time_active=self._monitor is not None and self._monitor.is_running,
+            syncing=self._syncing,
         )
 
     # ------------------------------------------------------------------ #
     # Hash DB sync machinery                                             #
     # ------------------------------------------------------------------ #
 
-    def _start_sync(self) -> None:
+    async def _run_sync(self) -> None:
         if self._hash_db is None:
             return
 
-        async def _sync_worker() -> None:
-            assert self._hash_db is not None
-            try:
-                result = await sync_all(self._hash_db)
-                log.info("hash DB sync complete: %s", result)
-            except asyncio.CancelledError:
-                log.info("hash DB sync cancelled")
-            except Exception:
-                log.exception("hash DB sync failed")
+        self._syncing = True
+        self._sync_task = asyncio.create_task(self._do_sync(), name="hash-db-sync")
+        try:
+            await self._sync_task
+        except asyncio.CancelledError:
+            log.info("hash DB sync cancelled")
+        except Exception:
+            log.exception("hash DB sync failed")
+        finally:
+            self._syncing = False
+            self._sync_task = None
 
-        self._sync_task = asyncio.create_task(_sync_worker(), name="hash-db-sync")
+    async def _do_sync(self) -> dict[str, int]:
+        assert self._hash_db is not None
+        return await sync_all(self._hash_db, api_key=self._config.mb_api_key)
 
     # ------------------------------------------------------------------ #
     # Whitelist rescan machinery                                         #

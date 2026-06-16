@@ -315,9 +315,7 @@ class FanotifyMonitor:
     def _on_close_write(self, path: Path) -> None:
         """A file was closed after being written. Submit it for scanning."""
         try:
-            is_whitelisted = self._run_async(
-                self._whitelist.matches_directory(path)
-            )
+            is_whitelisted = self._run_async(self._whitelist.matches_directory(path))
         except Exception:
             is_whitelisted = False
         if is_whitelisted:
@@ -351,9 +349,7 @@ class FanotifyMonitor:
             return Verdict.ERROR
 
         try:
-            is_wl = self._run_async(
-                self._whitelist.is_hash_whitelisted(content_hash)
-            )
+            is_wl = self._run_async(self._whitelist.is_hash_whitelisted(content_hash))
         except Exception:
             is_wl = False
         if is_wl:
@@ -361,9 +357,7 @@ class FanotifyMonitor:
             return Verdict.WHITELISTED
 
         try:
-            hit = self._run_async(
-                self._hash_repo.lookup_by_hash(content_hash)
-            )
+            hit = self._run_async(self._hash_repo.lookup_by_hash(content_hash))
         except Exception as exc:
             log.warning("fanotify: hash lookup failed for %s: %s", path, exc)
             self._record_cache(path, content_hash, Verdict.ERROR)
@@ -381,8 +375,6 @@ class FanotifyMonitor:
             return
         fp = FileFingerprint.from_stat(st)
         try:
-            self._run_async(
-                self._cache.record(path, fp, verdict, content_hash)
-            )
+            self._run_async(self._cache.record(path, fp, verdict, content_hash))
         except Exception as exc:
             log.debug("fanotify: cache record error: %s", exc)

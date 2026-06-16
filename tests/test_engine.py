@@ -20,6 +20,7 @@ def _config(scan_roots: list[Path] | None = None, **overrides) -> Config:
         log_level="WARNING",
         socket_mode=0o600,
         sync_on_startup=False,
+        mb_api_key="test-key",
     )
     for k, v in overrides.items():
         cfg = Config(**{**cfg.__dict__, k: v})

@@ -30,84 +30,22 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "first_seen": "2024-01-01",
-                        "file_name": "evil.exe",
-                        "file_type": "exe",
-                        "tags": "trojan,downloader",
-                        "signature": "AgentTesla",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "first_seen": "2024-01-01",
+                            "file_name": "evil.exe",
+                            "file_type": "exe",
+                            "tags": "trojan,downloader",
+                            "signature": "AgentTesla",
+                        }
+                    ]
+                )
                 result = await db.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
                 assert "AgentTesla" in result.detail
                 assert "evil.exe" in result.detail
-            finally:
-                await db.close()
-
-        asyncio.run(go())
-
-    def test_malwarebazaar_preferred_over_virusshare(self, tmp_path):
-        async def go():
-            from antyswirusd.hash_db import HashDatabase
-
-            db = HashDatabase(tmp_path / "hash.db")
-            await db.open()
-            try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "first_seen": "2024-01-01",
-                        "file_name": "from_mb.exe",
-                        "file_type": "exe",
-                        "tags": "",
-                        "signature": "MB_sig",
-                    }
-                ])
-                await db.import_virusshare_hashes(["a" * 64])
-                result = await db.lookup_by_hash("a" * 64)
-                assert result.verdict is Verdict.MALICIOUS
-                assert "MB_sig" in result.detail
-                assert "malwarebazaar" in result.detail
-            finally:
-                await db.close()
-
-        asyncio.run(go())
-
-    def test_virusshare_fallback(self, tmp_path):
-        async def go():
-            from antyswirusd.hash_db import HashDatabase
-
-            db = HashDatabase(tmp_path / "hash.db")
-            await db.open()
-            try:
-                await db.import_virusshare_hashes(["a" * 64])
-                result = await db.lookup_by_hash("a" * 64)
-                assert result.verdict is Verdict.MALICIOUS
-                assert "virusshare" in result.detail
-            finally:
-                await db.close()
-
-        asyncio.run(go())
-
-    def test_import_virusshare_skips_invalid_hashes(self, tmp_path):
-        async def go():
-            from antyswirusd.hash_db import HashDatabase
-
-            db = HashDatabase(tmp_path / "hash.db")
-            await db.open()
-            try:
-                before = await db.count()
-                await db.import_virusshare_hashes([
-                    "a" * 64,
-                    "not-a-hex",
-                    "short",
-                    "b" * 64,
-                ])
-                after = await db.count()
-                assert after - before == 2
             finally:
                 await db.close()
 
@@ -164,22 +102,30 @@ class TestHashDatabase:
                 assert await db.count() == 0
                 assert await db.count_by_source() == {}
 
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "first_seen": None,
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": None,
-                    }
-                ])
-                await db.import_virusshare_hashes(["b" * 64, "c" * 64])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "first_seen": None,
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": None,
+                        },
+                        {
+                            "sha256_hash": "b" * 64,
+                            "first_seen": None,
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": None,
+                        },
+                    ]
+                )
 
-                assert await db.count() == 3
+                assert await db.count() == 2
                 by_source = await db.count_by_source()
-                assert by_source.get("malwarebazaar") == 1
-                assert by_source.get("virusshare") == 2
+                assert by_source.get("malwarebazaar") == 2
             finally:
                 await db.close()
 
@@ -209,22 +155,25 @@ class TestHashDatabase:
 
     def test_lookup_sha256_only(self, tmp_path):
         """SHA-1 and MD5 are not stored; only SHA-256 lookups match."""
+
         async def go():
             from antyswirusd.hash_db import HashDatabase
 
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "first_seen": "2024-01-01",
-                        "file_name": "evil.exe",
-                        "file_type": "exe",
-                        "tags": "",
-                        "signature": "foo",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "first_seen": "2024-01-01",
+                            "file_name": "evil.exe",
+                            "file_type": "exe",
+                            "tags": "",
+                            "signature": "foo",
+                        }
+                    ]
+                )
                 # SHA-1 lookup should not match (no sha1 column)
                 result = await db.lookup_by_hash("b" * 40)
                 assert result.verdict is Verdict.UNKNOWN

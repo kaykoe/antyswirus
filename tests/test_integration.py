@@ -39,7 +39,9 @@ class TestDaemonLifecycle:
             assert not runtime_paths.socket_path.exists()
 
     def test_daemon_logs_to_logfile(self, runtime_paths, env_with_runtime_paths):
-        proc = DaemonProcess(runtime_paths, Config(log_level="INFO", sync_on_startup=False))
+        proc = DaemonProcess(
+            runtime_paths, Config(log_level="INFO", sync_on_startup=False)
+        )
         proc.start()
         try:
             wait_for(lambda: runtime_paths.log_path.exists())
@@ -258,8 +260,7 @@ class TestCachingBehavior:
         try:
             wait_for(
                 lambda: (
-                    "hash lookup"
-                    in runtime_paths.log_path.read_text(encoding="utf-8")
+                    "hash lookup" in runtime_paths.log_path.read_text(encoding="utf-8")
                 ),
                 timeout=5.0,
             )

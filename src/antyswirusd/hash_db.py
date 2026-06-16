@@ -1,8 +1,8 @@
 """Local SQLite-backed malware hash database.
 
-Stores SHA-256 hashes from multiple sources (MalwareBazaar, VirusShare)
-in a single table. The update/sync logic for each source lives in
-separate modules; this class only owns the schema and query methods.
+Stores SHA-256 hashes from MalwareBazaar in a single table. The
+update/sync logic lives in separate modules; this class only owns
+the schema and query methods.
 
 Schema
 ------
@@ -11,7 +11,7 @@ Schema
 
     CREATE TABLE malware_hashes (
         sha256      TEXT PRIMARY KEY,
-        source      TEXT NOT NULL,    -- 'malwarebazaar' | 'virusshare'
+        source      TEXT NOT NULL,    -- 'malwarebazaar'
         first_seen  TEXT,             -- ISO-8601 datetime from source
         file_name   TEXT,
         file_type   TEXT,
@@ -56,11 +56,7 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 
 
 class HashDatabase:
-    """Local hash database queried by SHA-256.
-
-    MalwareBazaar rows are preferred when both sources have the same
-    hash (queried first).
-    """
+    """Local hash database queried by SHA-256."""
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -82,48 +78,40 @@ class HashDatabase:
             db, self._db = self._db, None
             await db.close()
 
-    async def lookup_by_hash(
-        self, content_hash: str, *, source: str | None = None
-    ) -> HashLookup:
+    async def lookup_by_hash(self, content_hash: str) -> HashLookup:
         """Return a verdict for the given SHA-256.
 
-        If *source* is given, only rows from that source are considered.
-        MalwareBazaar rows are preferred when no source filter is given
-        (queried first). Returns UNKNOWN if not found.
+        Returns MALICIOUS if found in the database, UNKNOWN otherwise.
         """
         assert self._db is not None
-        sources = [source] if source else ["malwarebazaar", "virusshare"]
-        for src in sources:
-            async with self._db.execute(
-                "SELECT source, signature, file_name FROM malware_hashes "
-                "WHERE sha256 = ? AND source = ? LIMIT 1",
-                (content_hash, src),
-            ) as cur:
-                row = await cur.fetchone()
-            if row is not None:
-                src_name, signature, file_name = row
-                parts = [f"source={src_name}"]
-                if signature:
-                    parts.append(f"family={signature}")
-                if file_name:
-                    parts.append(f"name={file_name}")
-                return HashLookup(
-                    verdict=Verdict.MALICIOUS, detail="; ".join(parts)
-                )
+        async with self._db.execute(
+            "SELECT signature, file_name FROM malware_hashes WHERE sha256 = ? LIMIT 1",
+            (content_hash,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is not None:
+            signature, file_name = row
+            parts: list[str] = []
+            if signature:
+                parts.append(f"family={signature}")
+            if file_name:
+                parts.append(f"name={file_name}")
+            return HashLookup(
+                verdict=Verdict.MALICIOUS,
+                detail="; ".join(parts) if parts else None,
+            )
         return HashLookup(verdict=Verdict.UNKNOWN)
 
     # ------------------------------------------------------------------
     # Bulk import helpers (called by sync modules)
     # ------------------------------------------------------------------
 
-    async def import_malwarebazaar_rows(
-        self, rows: list[dict[str, str | None]]
-    ) -> int:
+    async def import_malwarebazaar_rows(self, rows: list[dict[str, str | None]]) -> int:
         """Insert/update rows from a MalwareBazaar CSV dump.
 
         Each dict must have keys: sha256_hash, first_seen, file_name,
         file_type, tags, signature. MalwareBazaar rows take priority
-        over VirusShare entries for the same SHA-256.
+        MalwareBazaar rows replace any existing entry for the same SHA-256.
 
         Uses ``executemany`` for performance. Returns the number of rows
         added (new minus replaced).
@@ -131,7 +119,9 @@ class HashDatabase:
         assert self._db is not None
         before = await self._row_count()
         now = time.time()
-        params: list[tuple[str, str | None, str | None, str | None, str, str | None, float]] = []
+        params: list[
+            tuple[str, str | None, str | None, str | None, str, str | None, float]
+        ] = []
         for r in rows:
             sha256 = r.get("sha256_hash")
             if not sha256:
@@ -140,15 +130,17 @@ class HashDatabase:
             tags_json = json.dumps(
                 [t.strip() for t in tags_raw.split(",") if t.strip()]
             )
-            params.append((
-                sha256,
-                r.get("first_seen"),
-                r.get("file_name"),
-                r.get("file_type"),
-                tags_json,
-                r.get("signature"),
-                now,
-            ))
+            params.append(
+                (
+                    sha256,
+                    r.get("first_seen"),
+                    r.get("file_name"),
+                    r.get("file_type"),
+                    tags_json,
+                    r.get("signature"),
+                    now,
+                )
+            )
         if not params:
             return 0
         try:
@@ -175,44 +167,9 @@ class HashDatabase:
         await self._db.commit()
         return (await self._row_count()) - before
 
-    async def import_virusshare_hashes(
-        self, hashes: list[str]
-    ) -> int:
-        """Insert SHA-256 hashes from VirusShare hash lists.
-
-        Only SHA-256 is provided by VirusShare. Uses ``executemany``
-        with ``INSERT OR IGNORE``. Returns the number of new rows
-        inserted.
-        """
-        assert self._db is not None
-        before = await self._row_count()
-        now = time.time()
-        params: list[tuple[str, float]] = [
-            (h, now)
-            for h in hashes
-            if len(h) == 64 and all(c in "0123456789abcdef" for c in h.lower())
-        ]
-        if not params:
-            return 0
-        try:
-            await self._db.executemany(
-                """
-                INSERT OR IGNORE INTO malware_hashes(sha256, source, imported_at)
-                VALUES (?, 'virusshare', ?)
-                """,
-                params,
-            )
-        except Exception:
-            log.warning("virusshare batch import failed", exc_info=True)
-            raise
-        await self._db.commit()
-        return (await self._row_count()) - before
-
     async def _row_count(self) -> int:
         assert self._db is not None
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM malware_hashes"
-        ) as cur:
+        async with self._db.execute("SELECT COUNT(*) FROM malware_hashes") as cur:
             row = await cur.fetchone()
         return row[0] if row else 0
 
@@ -239,9 +196,7 @@ class HashDatabase:
     async def count(self) -> int:
         """Return the total number of stored hashes."""
         assert self._db is not None
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM malware_hashes"
-        ) as cur:
+        async with self._db.execute("SELECT COUNT(*) FROM malware_hashes") as cur:
             row = await cur.fetchone()
         return row[0] if row else 0
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-
 from antyswirus_lib.types import Verdict
 
 
@@ -36,65 +35,20 @@ class TestDatabaseHashRepository:
             repo = DatabaseHashRepository(db)
             await repo.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "first_seen": "2024-01-01",
-                        "file_name": "bad.exe",
-                        "file_type": "exe",
-                        "tags": "",
-                        "signature": "Malware",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "first_seen": "2024-01-01",
+                            "file_name": "bad.exe",
+                            "file_type": "exe",
+                            "tags": "",
+                            "signature": "Malware",
+                        }
+                    ]
+                )
                 result = await repo.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
-            finally:
-                await repo.close()
-
-        asyncio.run(go())
-
-    def test_lookup_virusshare_fallback(self, tmp_path):
-        async def go():
-            from antyswirusd.hash_db import HashDatabase
-            from antyswirusd.database_hash_repo import DatabaseHashRepository
-
-            db = HashDatabase(tmp_path / "hash.db")
-            await db.open()
-            repo = DatabaseHashRepository(db)
-            await repo.open()
-            try:
-                await db.import_virusshare_hashes(["b" * 64])
-                result = await repo.lookup_by_hash("b" * 64)
-                assert result.verdict is Verdict.MALICIOUS
-            finally:
-                await repo.close()
-
-        asyncio.run(go())
-
-    def test_lookup_malwarebazaar_before_virusshare(self, tmp_path):
-        async def go():
-            from antyswirusd.hash_db import HashDatabase
-            from antyswirusd.database_hash_repo import DatabaseHashRepository
-
-            db = HashDatabase(tmp_path / "hash.db")
-            await db.open()
-            repo = DatabaseHashRepository(db)
-            await repo.open()
-            try:
-                await db.import_virusshare_hashes(["c" * 64])
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "c" * 64,
-                        "first_seen": None,
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": "PriorityMalware",
-                    }
-                ])
-                result = await repo.lookup_by_hash("c" * 64)
-                assert result.verdict is Verdict.MALICIOUS
-                assert "PriorityMalware" in (result.detail or "")
             finally:
                 await repo.close()
 
@@ -117,8 +71,10 @@ class TestDatabaseHashRepository:
         asyncio.run(go())
 
     def test_sync_all_structure(self):
-        """sync_all returns a dict with expected source keys (no network test)."""
+        """sync_all has expected parameters (no network test)."""
         from antyswirusd.database_hash_repo import sync_all
         import inspect
+
         sig = inspect.signature(sync_all)
         assert "hash_db" in sig.parameters
+        assert "api_key" in sig.parameters
