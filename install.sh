@@ -26,6 +26,11 @@ info() {
 }
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"$INSTALL_LOG"; }
 
+# ─── set up install log ─────────────────────────────────────────────
+mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null || true
+touch "$INSTALL_LOG"
+log "=== $APP installation started ==="
+
 # ─── root check ─────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || die "This script must be run as root (or via sudo)."
 
@@ -37,11 +42,6 @@ fi
 if [[ -f "$SERVICE_FILE" ]] && systemctl is-enabled --quiet "$APP" 2>/dev/null; then
   info "$APP systemd service already enabled — will upgrade in-place."
 fi
-
-# ─── set up install log ─────────────────────────────────────────────
-mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null || true
-touch "$INSTALL_LOG"
-log "=== $APP installation started ==="
 
 # ─── prerequisites ──────────────────────────────────────────────────
 info "Checking prerequisites …"
