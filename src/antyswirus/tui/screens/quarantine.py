@@ -14,7 +14,6 @@ import asyncio
 import datetime as _dt
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
@@ -49,12 +48,9 @@ class QuarantineScreen(Screen[None]):
         self._items: list[QuarantineItem] = []
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="quarantine-wrap"):
-            yield Static("Quarantine", id="quarantine-title")
-            yield DataTable(
-                id="quarantine-table", cursor_type="row", zebra_stripes=True
-            )
-            yield Static("(quarantine is empty)", id="quarantine-empty")
+        yield Static("Quarantine", id="quarantine-title")
+        yield DataTable(id="quarantine-table", cursor_type="row", zebra_stripes=True)
+        yield Static("(quarantine is empty)", id="quarantine-empty")
         yield KeybindBar(
             [
                 ("d", "delete"),
