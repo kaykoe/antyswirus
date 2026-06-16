@@ -28,6 +28,16 @@ class QuarantineItem:
 
 
 @dataclass(slots=True, frozen=True)
+class WhitelistEntryItem:
+    """A single row in the whitelist, as the TUI sees it."""
+
+    kind: str
+    value: str
+    added_at: float
+    note: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class StatusSnapshot:
     """The bits of the ``status`` IPC response the TUI displays."""
 
@@ -52,6 +62,11 @@ class StatusProvider(Protocol):
 
     async def get_status(self) -> StatusSnapshot: ...
     async def list_quarantine(self) -> list[QuarantineItem]: ...
+    async def list_whitelist(self) -> list[WhitelistEntryItem]: ...
+    async def add_whitelist(
+        self, kind: str, value: str, note: str | None = None
+    ) -> None: ...
+    async def remove_whitelist(self, kind: str, value: str) -> None: ...
     async def scan(self, path: str) -> None: ...
     async def restore(self, quarantine_id: str) -> None: ...
     async def delete(self, quarantine_id: str) -> None: ...
@@ -114,6 +129,29 @@ class IpcClient:
             for item in r.get("items", [])
         ]
 
+    async def list_whitelist(self) -> list[WhitelistEntryItem]:
+        r = await self._call("whitelist_list")
+        return [
+            WhitelistEntryItem(
+                kind=str(e.get("kind", "")),
+                value=str(e.get("value", "")),
+                added_at=float(e.get("added_at", 0.0)),
+                note=e.get("note"),
+            )
+            for e in r.get("entries", [])
+        ]
+
+    async def add_whitelist(
+        self, kind: str, value: str, note: str | None = None
+    ) -> None:
+        args: dict = {"kind": kind, "value": value}
+        if note is not None:
+            args["note"] = note
+        await self._call("whitelist_add", **args)
+
+    async def remove_whitelist(self, kind: str, value: str) -> None:
+        await self._call("whitelist_remove", kind=kind, value=value)
+
     async def scan(self, path: str) -> None:
         await self._call("scan", path=path)
 
@@ -149,6 +187,7 @@ class FakeClient:
 
     statuses: list[StatusSnapshot] = field(default_factory=list)
     items: list[QuarantineItem] = field(default_factory=list)
+    whitelist_entries: list[WhitelistEntryItem] = field(default_factory=list)
     calls: list[tuple[str, tuple, dict]] = field(default_factory=list)
     fail_with: Exception | None = None
 
@@ -165,6 +204,34 @@ class FakeClient:
         if self.fail_with is not None:
             raise self.fail_with
         return list(self.items)
+
+    async def list_whitelist(self) -> list[WhitelistEntryItem]:
+        self.calls.append(("list_whitelist", (), {}))
+        if self.fail_with is not None:
+            raise self.fail_with
+        return list(self.whitelist_entries)
+
+    async def add_whitelist(
+        self, kind: str, value: str, note: str | None = None
+    ) -> None:
+        self.calls.append(
+            ("add_whitelist", (), {"kind": kind, "value": value, "note": note})
+        )
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.whitelist_entries.append(
+            WhitelistEntryItem(kind=kind, value=value, added_at=0.0, note=note)
+        )
+
+    async def remove_whitelist(self, kind: str, value: str) -> None:
+        self.calls.append(("remove_whitelist", (), {"kind": kind, "value": value}))
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.whitelist_entries = [
+            e
+            for e in self.whitelist_entries
+            if not (e.kind == kind and e.value == value)
+        ]
 
     async def scan(self, path: str) -> None:
         self.calls.append(("scan", (), {"path": path}))
@@ -201,5 +268,6 @@ __all__ = [
     "QuarantineItem",
     "StatusProvider",
     "StatusSnapshot",
+    "WhitelistEntryItem",
     "make_default_client",
 ]

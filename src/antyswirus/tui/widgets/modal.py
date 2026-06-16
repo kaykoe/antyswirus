@@ -1,11 +1,13 @@
 """Modal dialog screens used by the TUI.
 
-Two small ``ModalScreen`` subclasses:
+Three small ``ModalScreen`` subclasses:
 
 - :class:`ConfirmScreen` — yes/no prompt. Returns ``True`` if the
   user confirms, ``False`` if they cancel.
 - :class:`InputScreen` — a labeled single-line text input. Returns
   the entered string, or ``None`` if the user cancels.
+- :class:`ChoiceScreen` — an option picker. Returns the selected
+  option string, or ``None`` if the user cancels.
 """
 
 from __future__ import annotations
@@ -99,6 +101,47 @@ class InputScreen(ModalScreen[Optional[str]]):
             self.dismiss(value)
         else:
             self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ChoiceScreen(ModalScreen[Optional[str]]):
+    """Option picker modal. Returns the selected option string, or None."""
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(
+        self,
+        message: str,
+        options: list[str],
+        *,
+        title: str = "Choose",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._message = message
+        self._options = options
+
+    def compose(self):
+        with Vertical(id="choice-dialog"):
+            yield Static(self._title, id="choice-title")
+            yield Static(self._message, id="choice-message")
+            with Horizontal(id="choice-buttons"):
+                for i, opt in enumerate(self._options):
+                    yield Button(
+                        opt,
+                        id=f"choice-{opt}",
+                        variant="primary" if i == 0 else "default",
+                    )
+
+    def on_mount(self) -> None:
+        self.query_one(f"#choice-{self._options[0]}", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id.removeprefix("choice-"))
 
     def action_cancel(self) -> None:
         self.dismiss(None)

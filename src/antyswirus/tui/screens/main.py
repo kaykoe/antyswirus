@@ -32,6 +32,7 @@ from textual.widgets import ProgressBar, Static
 
 from antyswirus.tui.client import StatusProvider, StatusSnapshot
 from antyswirus.tui.screens.quarantine import QuarantineScreen
+from antyswirus.tui.screens.whitelist import WhitelistScreen
 from antyswirus.tui.widgets import (
     ConfirmScreen,
     DotFiller,
@@ -80,6 +81,7 @@ class MainScreen(Screen[None]):
         ("s", "scan", "Run scan"),
         ("x", "stop", "Stop scan"),
         ("c", "quarantine", "Quarantine view"),
+        ("w", "whitelist", "Whitelist view"),
         ("q", "quit", "Quit"),
         ("Q", "quit", "Quit"),
     ]
@@ -107,6 +109,7 @@ class MainScreen(Screen[None]):
                 ("s", "run scan"),
                 ("x", "stop scan"),
                 ("c", "quarantine"),
+                ("w", "whitelist"),
                 ("q", "quit"),
             ]
         )
@@ -230,6 +233,9 @@ class MainScreen(Screen[None]):
 
     def action_quarantine(self) -> None:
         self.app.push_screen(QuarantineScreen(self._client))
+
+    def action_whitelist(self) -> None:
+        self.app.push_screen(WhitelistScreen(self._client))
 
     def action_quit(self) -> None:
         self.app.exit()

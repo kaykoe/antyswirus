@@ -38,7 +38,8 @@ class QuarantineScreen(Screen[None]):
         ("d", "delete", "Delete"),
         ("r", "restore", "Restore"),
         ("escape", "back", "Back"),
-        ("c", "back", "Back"),
+        ("c", "home", "Main"),
+        ("w", "whitelist", "Whitelist view"),
         ("q", "quit", "Quit"),
         ("Q", "quit", "Quit"),
     ]
@@ -52,15 +53,18 @@ class QuarantineScreen(Screen[None]):
         with Vertical(id="quarantine-wrap"):
             yield Static("Quarantine", id="quarantine-title")
             yield DataTable(
-                id="quarantine-table", cursor_type="row", zebra_stripes=True
-                )
+                id="quarantine-table",
+                cursor_type="row",
+                zebra_stripes=True,
+                show_header=True,
+            )
             yield Static("(quarantine is empty)", id="quarantine-empty")
         yield KeybindBar(
             [
                 ("d", "delete"),
                 ("r", "restore"),
-                ("esc", "back"),
-                ("c", "back"),
+                ("w", "whitelist"),
+                ("c", "main"),
                 ("q", "quit"),
             ]
         )
@@ -68,7 +72,8 @@ class QuarantineScreen(Screen[None]):
     def on_mount(self) -> None:
         table = self.query_one("#quarantine-table", DataTable)
         table.add_columns("id", "original path", "quarantined at", "verdict")
-        self._reload()
+        table.display = False
+        self.query_one("#quarantine-empty", Static).display = False
 
     def on_screen_resume(self) -> None:
         self._reload()
@@ -176,6 +181,19 @@ class QuarantineScreen(Screen[None]):
 
     def action_back(self) -> None:
         self.app.pop_screen()
+
+    def action_home(self) -> None:
+        from antyswirus.tui.screens.main import MainScreen
+
+        while len(self.app.screen_stack) > 1 and not isinstance(
+            self.app.screen, MainScreen
+        ):
+            self.app.pop_screen()
+
+    def action_whitelist(self) -> None:
+        from antyswirus.tui.screens.whitelist import WhitelistScreen
+
+        self.app.push_screen(WhitelistScreen(self._client))
 
     def action_quit(self) -> None:
         self.app.exit()

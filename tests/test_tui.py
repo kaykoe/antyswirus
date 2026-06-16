@@ -18,9 +18,15 @@ import time
 import pytest
 
 from antyswirus.tui.app import AntyswirusTui
-from antyswirus.tui.client import FakeClient, QuarantineItem, StatusSnapshot
+from antyswirus.tui.client import (
+    FakeClient,
+    QuarantineItem,
+    StatusSnapshot,
+    WhitelistEntryItem,
+)
 from antyswirus.tui.screens.main import MainScreen, _StatRow
 from antyswirus.tui.screens.quarantine import QuarantineScreen
+from antyswirus.tui.screens.whitelist import WhitelistScreen
 from antyswirus.tui.widgets import KeybindBar, Logo
 from antyswirus.tui.widgets.dot_filler import DotFiller
 
@@ -59,6 +65,14 @@ def _item(qid: str = "abc123def456", path: str = "/etc/passwd") -> QuarantineIte
         quarantined_at=time.time() - 30.0,
         verdict="malicious",
         detail="test",
+    )
+
+
+def _witem(
+    kind: str = "path", value: str = "/opt/trusted", note: str | None = "vendor"
+) -> WhitelistEntryItem:
+    return WhitelistEntryItem(
+        kind=kind, value=value, added_at=time.time() - 60.0, note=note
     )
 
 
@@ -307,6 +321,217 @@ class TestQuarantineScreen:
 
         _run(go())
 
+    def test_c_key_pops_to_main_from_whitelist_chain(self):
+        async def go():
+            client = FakeClient(items=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+                await pilot.press("c")
+                await _pump(pilot)
+                assert isinstance(app.screen, QuarantineScreen)
+                await pilot.press("c")
+                await _pump(pilot)
+                assert isinstance(app.screen, MainScreen)
+
+        _run(go())
+
+    def test_w_key_pushes_whitelist_from_quarantine(self):
+        async def go():
+            client = FakeClient(items=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("c")
+                await _pump(pilot)
+                assert isinstance(app.screen, QuarantineScreen)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+
+        _run(go())
+
+
+# ---------------------------------------------------------------------- #
+# WhitelistScreen                                                        #
+# ---------------------------------------------------------------------- #
+
+
+class TestWhitelistScreen:
+    def test_renders_listed_entries(self):
+        async def go():
+            from textual.widgets import DataTable
+
+            client = FakeClient(
+                whitelist_entries=[_witem(), _witem(kind="hash", value="deadbeef")]
+            )
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                table = app.screen.query_one("#whitelist-table", DataTable)
+                assert table.row_count == 2
+
+        _run(go())
+
+    def test_empty_state(self):
+        async def go():
+            client = FakeClient(whitelist_entries=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert app.screen.query_one("#whitelist-empty").display is True
+
+        _run(go())
+
+    def test_w_key_pushes_whitelist_screen(self):
+        async def go():
+            client = FakeClient(statuses=[_snapshot()])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await pilot.pause()
+                assert isinstance(app.screen, WhitelistScreen)
+
+        _run(go())
+
+    def test_remove_key_opens_confirm_modal(self):
+        async def go():
+            from antyswirus.tui.widgets.modal import ConfirmScreen
+
+            client = FakeClient(whitelist_entries=[_witem()])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                await pilot.press("r")
+                await pilot.pause()
+                assert isinstance(app.screen, ConfirmScreen)
+                app.screen.dismiss(False)
+                await pilot.pause()
+
+        _run(go())
+
+    def test_confirm_remove_calls_client(self):
+        async def go():
+            from antyswirus.tui.widgets.modal import ConfirmScreen
+
+            client = FakeClient(whitelist_entries=[_witem()])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                await pilot.press("r")
+                await _pump(pilot)
+                assert isinstance(app.screen, ConfirmScreen)
+                await pilot.press("enter")
+                await _pump(pilot)
+                remove_calls = [c for c in client.calls if c[0] == "remove_whitelist"]
+                assert remove_calls
+                assert remove_calls[0][2]["kind"] == "path"
+                assert remove_calls[0][2]["value"] == "/opt/trusted"
+
+        _run(go())
+
+    def test_w_key_pops_to_main(self):
+        async def go():
+            client = FakeClient(whitelist_entries=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, MainScreen)
+
+        _run(go())
+
+    def test_w_key_pops_to_main_from_chain(self):
+        async def go():
+            client = FakeClient(whitelist_entries=[], items=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+                await pilot.press("c")
+                await _pump(pilot)
+                assert isinstance(app.screen, QuarantineScreen)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, MainScreen)
+
+        _run(go())
+
+    def test_c_key_pushes_quarantine_from_whitelist(self):
+        async def go():
+            client = FakeClient(whitelist_entries=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                assert isinstance(app.screen, WhitelistScreen)
+                await pilot.press("c")
+                await _pump(pilot)
+                assert isinstance(app.screen, QuarantineScreen)
+
+        _run(go())
+
+    def test_add_key_opens_choice_modal(self):
+        async def go():
+            from antyswirus.tui.widgets.modal import ChoiceScreen
+
+            client = FakeClient(whitelist_entries=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                await pilot.press("a")
+                await pilot.pause()
+                assert isinstance(app.screen, ChoiceScreen)
+                app.screen.dismiss(None)
+                await pilot.pause()
+
+        _run(go())
+
+    def test_add_flow_selects_kind_then_inputs_value(self):
+        async def go():
+            from antyswirus.tui.widgets.modal import ChoiceScreen, InputScreen
+
+            client = FakeClient(whitelist_entries=[])
+            app = AntyswirusTui(client=client)
+            async with app.run_test(size=(100, 30)) as pilot:
+                await _pump(pilot)
+                await pilot.press("w")
+                await _pump(pilot)
+                await pilot.press("a")
+                await _pump(pilot)
+                assert isinstance(app.screen, ChoiceScreen)
+                app.screen.dismiss("path")
+                await _pump(pilot)
+                assert isinstance(app.screen, InputScreen)
+                app.screen.dismiss(None)
+                await pilot.pause()
+
+        _run(go())
+
 
 # ---------------------------------------------------------------------- #
 # Client-level behaviour                                                 #
@@ -323,6 +548,9 @@ class TestFakeClient:
             await client.restore("qid")
             await client.delete("qid")
             await client.stop_daemon()
+            await client.list_whitelist()
+            await client.add_whitelist("path", "/foo")
+            await client.remove_whitelist("path", "/foo")
             names = [c[0] for c in client.calls]
             assert names == [
                 "get_status",
@@ -331,6 +559,9 @@ class TestFakeClient:
                 "restore",
                 "delete",
                 "stop_daemon",
+                "list_whitelist",
+                "add_whitelist",
+                "remove_whitelist",
             ]
 
         _run(go())
