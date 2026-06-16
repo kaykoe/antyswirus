@@ -18,7 +18,7 @@ Screen {
 }
 
 #logo {
-    color: #5C6F62;
+    color: #D6F5E0;
     text-style: none;
     width: auto;
     height: auto;
