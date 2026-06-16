@@ -34,18 +34,13 @@ class TestHashDatabase:
                     [
                         {
                             "sha256_hash": "a" * 64,
-                            "first_seen": "2024-01-01",
-                            "file_name": "evil.exe",
-                            "file_type": "exe",
+                            "first_seen_utc": "2024-01-01",
                             "tags": "trojan,downloader",
-                            "signature": "AgentTesla",
                         }
                     ]
                 )
                 result = await db.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
-                assert "AgentTesla" in result.detail
-                assert "evil.exe" in result.detail
             finally:
                 await db.close()
 
@@ -60,11 +55,8 @@ class TestHashDatabase:
             try:
                 row = {
                     "sha256_hash": "a" * 64,
-                    "first_seen": "2024-01-01",
-                    "file_name": None,
-                    "file_type": None,
+                    "first_seen_utc": "2024-01-01",
                     "tags": "",
-                    "signature": None,
                 }
                 first = await db.import_malwarebazaar_rows([row])
                 second = await db.import_malwarebazaar_rows([row])
@@ -106,19 +98,13 @@ class TestHashDatabase:
                     [
                         {
                             "sha256_hash": "a" * 64,
-                            "first_seen": None,
-                            "file_name": None,
-                            "file_type": None,
+                            "first_seen_utc": None,
                             "tags": "",
-                            "signature": None,
                         },
                         {
                             "sha256_hash": "b" * 64,
-                            "first_seen": None,
-                            "file_name": None,
-                            "file_type": None,
+                            "first_seen_utc": None,
                             "tags": "",
-                            "signature": None,
                         },
                     ]
                 )
@@ -166,11 +152,8 @@ class TestHashDatabase:
                     [
                         {
                             "sha256_hash": "a" * 64,
-                            "first_seen": "2024-01-01",
-                            "file_name": "evil.exe",
-                            "file_type": "exe",
+                            "first_seen_utc": "2024-01-01",
                             "tags": "",
-                            "signature": "foo",
                         }
                     ]
                 )

@@ -39,11 +39,8 @@ class TestDatabaseHashRepository:
                     [
                         {
                             "sha256_hash": "a" * 64,
-                            "first_seen": "2024-01-01",
-                            "file_name": "bad.exe",
-                            "file_type": "exe",
+                            "first_seen_utc": "2024-01-01",
                             "tags": "",
-                            "signature": "Malware",
                         }
                     ]
                 )
