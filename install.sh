@@ -12,13 +12,19 @@ INSTALL_LOG=/var/log/$APP/install.log
 
 UV=${UV:-uv}
 PYTHON=${PYTHON:-python3}
-INSTALL_PREFIX=${INSTALL_PREFIX:-/usr}
 BRANCH=${BRANCH:-main}
 
 # ─── helpers ────────────────────────────────────────────────────────
-die() { log "[!] $*"; echo "[!] $*" >&2; exit 1; }
-info() { log "[*] $*"; echo "[*] $*"; }
-log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$INSTALL_LOG"; }
+die() {
+  log "[!] $*"
+  echo "[!] $*" >&2
+  exit 1
+}
+info() {
+  log "[*] $*"
+  echo "[*] $*"
+}
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"$INSTALL_LOG"; }
 
 # ─── root check ─────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || die "This script must be run as root (or via sudo)."
@@ -45,8 +51,8 @@ command -v "$PYTHON" >/dev/null || die "Python not found at $PYTHON"
 pyver=$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 major="${pyver%%.*}"
 minor="${pyver#*.}"
-[[ $major -gt 3 || ( $major -eq 3 && $minor -ge 9 ) ]] \
-  || die "Python >= 3.9 required (found $pyver)"
+[[ $major -gt 3 || ($major -eq 3 && $minor -ge 9) ]] ||
+  die "Python >= 3.9 required (found $pyver)"
 info "Python $pyver — OK"
 
 command -v git >/dev/null || die "git is required to clone the repository."
@@ -56,19 +62,10 @@ command -v systemctl >/dev/null || die "systemctl not found — systemd is requi
 info "systemd — OK"
 
 if command -v "$UV" >/dev/null; then
-  INSTALL_CMD="$UV tool install --prefix $INSTALL_PREFIX"
-  PKG_INSTALLER=uv
-  info "Package installer: uv"
-elif command -v pip3 >/dev/null; then
-  INSTALL_CMD="pip3 install --break-system-packages"
-  PKG_INSTALLER=pip3
-  info "Package installer: pip3"
-elif command -v pip >/dev/null; then
-  INSTALL_CMD="pip install --break-system-packages"
-  PKG_INSTALLER=pip
-  info "Package installer: pip"
+  export UV_TOOL_BIN_DIR=/usr/bin
+  INSTALL_CMD="$UV tool install"
 else
-  die "Neither $UV nor pip found — install one of them first."
+  die "$UV not found — install it first using: curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/bin" sh"
 fi
 
 # ─── clone / update repository ─────────────────────────────────────
@@ -84,13 +81,8 @@ cd "$BUILD_DIR"
 
 # ─── install package ────────────────────────────────────────────────
 info "Installing $APP package (this may take a while) …"
-log "Running: $INSTALL_CMD"
 
-if [[ $PKG_INSTALLER == uv ]]; then
-  $INSTALL_CMD . 2>&1 | tee -a "$INSTALL_LOG"
-else
-  $INSTALL_CMD . 2>&1 | tee -a "$INSTALL_LOG"
-fi
+$INSTALL_CMD . 2>&1 | tee -a "$INSTALL_LOG"
 info "Package installed."
 
 # ─── directory structure ───────────────────────────────────────────
