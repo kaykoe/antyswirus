@@ -121,6 +121,7 @@ class HashDatabase:
                 )
             )
         if not params:
+            log.info(f"parsed {len(params)} valid rows")
             return 0
         try:
             await self._db.executemany(
