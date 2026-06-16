@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from antyswirus_lib.protocols import QuarantinedFile
-from antyswirus_lib.types import ScanResult, Verdict
+from antyswirus_lib.types import QuarantinedFile, ScanResult
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +29,7 @@ class StubQuarantine:
         log.debug("stub restore: %s", quarantine_id)
         raise FileNotFoundError(f"stub quarantine: {quarantine_id} not found")
 
-    async def list(
-        self, *, offset: int = 0, limit: int = 100
-    ) -> list[QuarantinedFile]:
+    async def list(self, *, offset: int = 0, limit: int = 100) -> list[QuarantinedFile]:
         log.debug("stub quarantine list")
         return []
 

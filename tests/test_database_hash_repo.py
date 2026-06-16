@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
-import pytest
 
 from antyswirus_lib.types import Verdict
 
@@ -36,18 +34,20 @@ class TestDatabaseHashRepository:
             await db.open()
             repo = DatabaseHashRepository(db)
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
-                        "first_seen": "2024-01-01",
-                        "file_name": "bad.exe",
-                        "file_type": "exe",
-                        "tags": "",
-                        "signature": "Malware",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": None,
+                            "md5_hash": None,
+                            "first_seen": "2024-01-01",
+                            "file_name": "bad.exe",
+                            "file_type": "exe",
+                            "tags": "",
+                            "signature": "Malware",
+                        }
+                    ]
+                )
                 result = await repo.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
             finally:
@@ -82,18 +82,20 @@ class TestDatabaseHashRepository:
             repo = DatabaseHashRepository(db)
             try:
                 await db.import_virusshare_hashes(["c" * 64])
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "c" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
-                        "first_seen": None,
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": "PriorityMalware",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "c" * 64,
+                            "sha1_hash": None,
+                            "md5_hash": None,
+                            "first_seen": None,
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": "PriorityMalware",
+                        }
+                    ]
+                )
                 result = await repo.lookup_by_hash("c" * 64)
                 assert result.verdict is Verdict.MALICIOUS
                 assert "PriorityMalware" in result.detail
@@ -121,5 +123,6 @@ class TestDatabaseHashRepository:
         """sync_all returns a dict with expected source keys (no network test)."""
         from antyswirusd.database_hash_repo import sync_all
         import inspect
+
         sig = inspect.signature(sync_all)
         assert "hash_db" in sig.parameters

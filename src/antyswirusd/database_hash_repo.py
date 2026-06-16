@@ -13,9 +13,7 @@ The database is periodically synced from both sources by the
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from antyswirus_lib.types import HashLookup, Verdict

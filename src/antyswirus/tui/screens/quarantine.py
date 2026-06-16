@@ -3,8 +3,8 @@
 Lists every file currently held in the daemon's quarantine, with
 textual's built-in :class:`DataTable` providing the highlight-on-
 scroll behaviour. Pressing ``d`` opens a confirm dialog and then
-deletes the selected row; ``r`` prompts for a destination path and
-restores the file. ``esc`` / ``c`` returns to the main screen; ``q``
+deletes the selected row; ``r`` confirms and restores the file to
+its original path. ``esc`` / ``c`` returns to the main screen; ``q``
 quits the app.
 """
 
@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime as _dt
-from typing import Optional
 
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
 from antyswirus.tui.client import QuarantineItem, StatusProvider
-from antyswirus.tui.widgets import ConfirmScreen, InputScreen, KeybindBar
+from antyswirus.tui.widgets import ConfirmScreen, KeybindBar
 
 
 def _format_timestamp(ts: float) -> str:
@@ -149,24 +148,23 @@ class QuarantineScreen(Screen[None]):
         if qid is None:
             return
 
-        def _handle(dest: Optional[str]) -> None:
-            if not dest:
+        def _handle(confirmed: bool) -> None:
+            if not confirmed:
                 return
-            asyncio.ensure_future(self._do_restore(qid, dest))
+            asyncio.ensure_future(self._do_restore(qid))
 
         self.app.push_screen(
-            InputScreen(
-                "Destination path:",
+            ConfirmScreen(
+                f"Restore quarantined file {qid[:8]}... to its original path?",
                 title="Restore",
-                placeholder="/path/to/restore",
             ),
             _handle,
         )
 
-    async def _do_restore(self, qid: str, dest: str) -> None:
+    async def _do_restore(self, qid: str) -> None:
         try:
-            await self._client.restore(qid, dest)
-            self.notify(f"restored {qid[:8]}... -> {dest}")
+            await self._client.restore(qid)
+            self.notify(f"restored {qid[:8]}...")
         except Exception as exc:
             self.notify(f"restore failed: {exc}", severity="error")
         finally:

@@ -99,6 +99,7 @@ class MainScreen(Screen[None]):
             yield _StatRow("Database version")
             yield _StatRow("Status")
             yield _StatRow("Quarantine")
+            yield _StatRow("Real-time monitor")
         with Center(id="progress-wrap"):
             yield ProgressBar(total=None, show_eta=False, id="progress")
         yield KeybindBar(
@@ -152,19 +153,24 @@ class MainScreen(Screen[None]):
             if snap.quarantine_count != 1
             else "1 file"
         )
+        rt_text = "active" if snap.real_time_active else "inactive"
 
         stat_rows = [w for w in self.walk_children(_StatRow)]
-        if len(stat_rows) >= 4:
+        if len(stat_rows) >= 5:
             stat_rows[0].set_value(last_scan)
             stat_rows[1].set_value(version)
             stat_rows[2].set_value(status_text, highlight=up_to_date)
             stat_rows[3].set_value(quarantine_text)
+            stat_rows[4].set_value(rt_text, highlight=snap.real_time_active)
 
         self._set_progress_visible(snap.active_scans > 0)
 
     def _set_progress_visible(self, visible: bool) -> None:
-        bar = self.query_one("#progress", ProgressBar)
-        wrap = self.query_one("#progress-wrap")
+        try:
+            bar = self.query_one("#progress", ProgressBar)
+            wrap = self.query_one("#progress-wrap")
+        except Exception:
+            return
         if visible:
             bar.indeterminate = True
             wrap.display = True

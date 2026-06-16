@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
-import pytest
 
 from antyswirus_lib.types import Verdict
 
@@ -32,18 +30,20 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": "b" * 40,
-                        "md5_hash": "c" * 32,
-                        "first_seen": "2024-01-01",
-                        "file_name": "evil.exe",
-                        "file_type": "exe",
-                        "tags": "trojan,downloader",
-                        "signature": "AgentTesla",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": "b" * 40,
+                            "md5_hash": "c" * 32,
+                            "first_seen": "2024-01-01",
+                            "file_name": "evil.exe",
+                            "file_type": "exe",
+                            "tags": "trojan,downloader",
+                            "signature": "AgentTesla",
+                        }
+                    ]
+                )
                 result = await db.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
                 assert "AgentTesla" in result.detail
@@ -60,18 +60,20 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": "b" * 40,
-                        "md5_hash": "c" * 32,
-                        "first_seen": "2024-01-01",
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": None,
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": "b" * 40,
+                            "md5_hash": "c" * 32,
+                            "first_seen": "2024-01-01",
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": None,
+                        }
+                    ]
+                )
                 result = await db.lookup_by_hash("b" * 40)
                 assert result.verdict is Verdict.MALICIOUS
             finally:
@@ -86,18 +88,20 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": "b" * 40,
-                        "md5_hash": "c" * 32,
-                        "first_seen": "2024-01-01",
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": None,
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": "b" * 40,
+                            "md5_hash": "c" * 32,
+                            "first_seen": "2024-01-01",
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": None,
+                        }
+                    ]
+                )
                 result = await db.lookup_by_hash("c" * 32)
                 assert result.verdict is Verdict.MALICIOUS
             finally:
@@ -112,18 +116,20 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
-                        "first_seen": "2024-01-01",
-                        "file_name": "from_mb.exe",
-                        "file_type": "exe",
-                        "tags": "",
-                        "signature": "MB_sig",
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": None,
+                            "md5_hash": None,
+                            "first_seen": "2024-01-01",
+                            "file_name": "from_mb.exe",
+                            "file_type": "exe",
+                            "tags": "",
+                            "signature": "MB_sig",
+                        }
+                    ]
+                )
                 await db.import_virusshare_hashes(["a" * 64])
                 result = await db.lookup_by_hash("a" * 64)
                 assert result.verdict is Verdict.MALICIOUS
@@ -158,12 +164,14 @@ class TestHashDatabase:
             await db.open()
             try:
                 before = await db.count()
-                await db.import_virusshare_hashes([
-                    "a" * 64,
-                    "not-a-hex",
-                    "short",
-                    "b" * 64,
-                ])
+                await db.import_virusshare_hashes(
+                    [
+                        "a" * 64,
+                        "not-a-hex",
+                        "short",
+                        "b" * 64,
+                    ]
+                )
                 after = await db.count()
                 assert after - before == 2
             finally:
@@ -226,18 +234,20 @@ class TestHashDatabase:
                 assert await db.count() == 0
                 assert await db.count_by_source() == {}
 
-                await db.import_malwarebazaar_rows([
-                    {
-                        "sha256_hash": "a" * 64,
-                        "sha1_hash": None,
-                        "md5_hash": None,
-                        "first_seen": None,
-                        "file_name": None,
-                        "file_type": None,
-                        "tags": "",
-                        "signature": None,
-                    }
-                ])
+                await db.import_malwarebazaar_rows(
+                    [
+                        {
+                            "sha256_hash": "a" * 64,
+                            "sha1_hash": None,
+                            "md5_hash": None,
+                            "first_seen": None,
+                            "file_name": None,
+                            "file_type": None,
+                            "tags": "",
+                            "signature": None,
+                        }
+                    ]
+                )
                 await db.import_virusshare_hashes(["b" * 64, "c" * 64])
 
                 assert await db.count() == 3

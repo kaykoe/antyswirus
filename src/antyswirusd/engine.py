@@ -55,6 +55,8 @@ class EngineStatus:
     active_scans: int
     pending_rescans: int
     real_time_active: bool
+    last_scan_at: float | None = None
+    quarantine_count: int = 0
 
 
 class Engine:
@@ -281,6 +283,32 @@ class Engine:
             active_scans=len(self._scanner_tasks),
             pending_rescans=len(self._rescan_tasks),
             real_time_active=self._monitor is not None and self._monitor.is_running,
+        )
+
+    async def rich_status(self) -> EngineStatus:
+        """Async variant of :meth:`status` that fills SQLite-backed fields.
+
+        ``last_scan_at`` requires a SQLite query, and
+        ``quarantine_count`` comes from the quarantine DB. Both go
+        through ``aiosqlite``; the rest of the snapshot comes from
+        the cheap in-memory state in :meth:`status`.
+        """
+        base = self.status()
+        last_scan_at = await self._cache.last_scan_at()
+        count = (
+            await self._quarantine.count() if hasattr(self._quarantine, "count") else 0
+        )
+        return EngineStatus(
+            pid=base.pid,
+            cache_generation=base.cache_generation,
+            cache_version=base.cache_version,
+            queue_size=base.queue_size,
+            workers=base.workers,
+            active_scans=base.active_scans,
+            pending_rescans=base.pending_rescans,
+            real_time_active=base.real_time_active,
+            last_scan_at=last_scan_at,
+            quarantine_count=count,
         )
 
     # ------------------------------------------------------------------ #

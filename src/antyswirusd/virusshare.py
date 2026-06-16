@@ -38,6 +38,7 @@ def _download_zip(index: int) -> bytes | None:
     url = _BASE_URL.format(index)
     log.debug("downloading %s", url)
     import urllib.request
+
     try:
         with urllib.request.urlopen(url, timeout=120) as resp:
             if resp.status != 200:
@@ -86,7 +87,9 @@ async def sync_from_index(
         results[i] = count
         log.info(
             "VirusShare_%05d.zip: %d hashes, %d new",
-            i, len(hashes), count,
+            i,
+            len(hashes),
+            count,
         )
         await db.set_sync_meta(_SOURCE_NAME, str(i + 1))
     return results

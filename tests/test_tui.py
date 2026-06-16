@@ -46,6 +46,7 @@ def _snapshot(last_scan_delta: float = 60.0) -> StatusSnapshot:
         workers=4,
         active_scans=0,
         pending_rescans=0,
+        real_time_active=False,
         last_scan_at=time.time() - last_scan_delta,
         quarantine_count=2,
     )
@@ -123,15 +124,17 @@ class TestDotFiller:
             client = FakeClient()
             app = AntyswirusTui(client=client)
             async with app.run_test(size=(100, 30)) as pilot:
-                await pilot.pause()
                 filler = _SizedFiller()
                 # Mount it onto the screen so it has a live app.
                 await app.screen.mount(filler)
-                await pilot.pause()
+                # Let the mount settle before checking content.
+                for _ in range(3):
+                    await pilot.pause()
                 for w in (0, 5, 10, 20):
                     filler._test_width = w
                     filler.on_resize()
-                    await pilot.pause()
+                    for _ in range(3):
+                        await pilot.pause()
                     text = str(filler._Static__content)
                     assert text == "." * w, f"expected {w} dots, got {len(text)}"
 
@@ -154,10 +157,10 @@ class TestMainScreen:
                 assert app.screen.query_one(Logo) is not None
                 assert app.screen.query_one(KeybindBar) is not None
                 rows = list(app.screen.walk_children(_StatRow))
-                assert len(rows) == 4
+                assert len(rows) == 5
                 for row, expected in zip(
                     rows,
-                    ["1 minute(s) ago", "v42", "up to date", "2 file(s)"],
+                    ["1 minute(s) ago", "v42", "up to date", "2 file(s)", "inactive"],
                 ):
                     value_widget = row.query("Static.stat-value").last()
                     got = str(value_widget._Static__content)  # type: ignore[attr-defined]
@@ -317,7 +320,7 @@ class TestFakeClient:
             await client.get_status()
             await client.list_quarantine()
             await client.scan("/tmp")
-            await client.restore("qid", "/tmp/out")
+            await client.restore("qid")
             await client.delete("qid")
             await client.stop_daemon()
             names = [c[0] for c in client.calls]

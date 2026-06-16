@@ -127,7 +127,7 @@ class IpcServer:
     ) -> Response:
         try:
             if command == "status":
-                st = self._engine.status()
+                st = await self._engine.rich_status()
                 return Response(
                     id=request_id,
                     status="ok",
@@ -140,6 +140,8 @@ class IpcServer:
                         "active_scans": st.active_scans,
                         "pending_rescans": st.pending_rescans,
                         "real_time_active": st.real_time_active,
+                        "last_scan_at": st.last_scan_at,
+                        "quarantine_count": st.quarantine_count,
                     },
                 )
             if command == "scan":

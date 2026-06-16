@@ -38,6 +38,7 @@ class StatusSnapshot:
     workers: int = 0
     active_scans: int = 0
     pending_rescans: int = 0
+    real_time_active: bool = False
     last_scan_at: float | None = None
     quarantine_count: int = 0
 
@@ -52,7 +53,7 @@ class StatusProvider(Protocol):
     async def get_status(self) -> StatusSnapshot: ...
     async def list_quarantine(self) -> list[QuarantineItem]: ...
     async def scan(self, path: str) -> None: ...
-    async def restore(self, quarantine_id: str, dest: str) -> None: ...
+    async def restore(self, quarantine_id: str) -> None: ...
     async def delete(self, quarantine_id: str) -> None: ...
     async def stop_daemon(self) -> None: ...
     async def close(self) -> None: ...
@@ -69,24 +70,21 @@ class IpcClient:
     async def _connect(self) -> AntyswirusClient:
         if self._conn is not None:
             return self._conn
-        # Serialise connection establishment so two concurrent
-        # callers don't both try to open the socket.
-        async with self._lock:
-            if self._conn is None:
-                self._conn = await AntyswirusClient.connect(self._paths.socket_path)
+        self._conn = await AntyswirusClient.connect(self._paths.socket_path)
         return self._conn
 
     async def _call(self, command: str, **args) -> dict:
-        try:
-            conn = await self._connect()
-            resp = await conn.call(command, **args)
-        except (ConnectionRefusedError, FileNotFoundError, OSError):
-            # Drop the cached connection so the next call retries.
-            self._conn = None
-            raise
-        if resp.status != "ok":
-            raise RuntimeError(resp.error or f"{command} failed")
-        return resp.result or {}
+        async with self._lock:
+            try:
+                conn = await self._connect()
+                resp = await conn.call(command, **args)
+            except (ConnectionRefusedError, FileNotFoundError, OSError):
+                # Drop the cached connection so the next call retries.
+                self._conn = None
+                raise
+            if resp.status != "ok":
+                raise RuntimeError(resp.error or f"{command} failed")
+            return resp.result or {}
 
     async def get_status(self) -> StatusSnapshot:
         r = await self._call("status")
@@ -98,6 +96,7 @@ class IpcClient:
             workers=int(r.get("workers", 0)),
             active_scans=int(r.get("active_scans", 0)),
             pending_rescans=int(r.get("pending_rescans", 0)),
+            real_time_active=bool(r.get("real_time_active", False)),
             last_scan_at=r.get("last_scan_at"),
             quarantine_count=int(r.get("quarantine_count", 0)),
         )
@@ -118,11 +117,11 @@ class IpcClient:
     async def scan(self, path: str) -> None:
         await self._call("scan", path=path)
 
-    async def restore(self, quarantine_id: str, dest: str) -> None:
-        await self._call("quarantine_restore", quarantine_id=quarantine_id, dest=dest)
+    async def restore(self, quarantine_id: str) -> None:
+        await self._call("quarantine_restore", id=quarantine_id)
 
     async def delete(self, quarantine_id: str) -> None:
-        await self._call("quarantine_delete", quarantine_id=quarantine_id)
+        await self._call("quarantine_delete", id=quarantine_id)
 
     async def stop_daemon(self) -> None:
         await self._call("stop")
@@ -172,10 +171,8 @@ class FakeClient:
         if self.fail_with is not None:
             raise self.fail_with
 
-    async def restore(self, quarantine_id: str, dest: str) -> None:
-        self.calls.append(
-            ("restore", (), {"quarantine_id": quarantine_id, "dest": dest})
-        )
+    async def restore(self, quarantine_id: str) -> None:
+        self.calls.append(("restore", (), {"quarantine_id": quarantine_id}))
         if self.fail_with is not None:
             raise self.fail_with
 

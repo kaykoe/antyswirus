@@ -127,9 +127,7 @@ class HashDatabase:
     # Bulk import helpers (called by sync modules)
     # ------------------------------------------------------------------
 
-    async def import_malwarebazaar_rows(
-        self, rows: list[dict[str, str | None]]
-    ) -> int:
+    async def import_malwarebazaar_rows(self, rows: list[dict[str, str | None]]) -> int:
         """Insert/update rows from a MalwareBazaar CSV dump.
 
         Each dict must have keys: sha256_hash, sha1_hash, md5_hash,
@@ -147,7 +145,9 @@ class HashDatabase:
             if not sha256:
                 continue
             tags_raw = r.get("tags") or ""
-            tags_json = json.dumps([t.strip() for t in tags_raw.split(",") if t.strip()])
+            tags_json = json.dumps(
+                [t.strip() for t in tags_raw.split(",") if t.strip()]
+            )
             try:
                 await self._db.execute(
                     """
@@ -183,9 +183,7 @@ class HashDatabase:
         await self._db.commit()
         return (await self._row_count()) - before
 
-    async def import_virusshare_hashes(
-        self, hashes: list[str]
-    ) -> int:
+    async def import_virusshare_hashes(self, hashes: list[str]) -> int:
         """Insert SHA-256 hashes from VirusShare hash lists.
 
         Only SHA-256 is provided by VirusShare; SHA-1 and MD5 are
@@ -214,9 +212,7 @@ class HashDatabase:
 
     async def _row_count(self) -> int:
         assert self._db is not None
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM malware_hashes"
-        ) as cur:
+        async with self._db.execute("SELECT COUNT(*) FROM malware_hashes") as cur:
             row = await cur.fetchone()
         return row[0] if row else 0
 
@@ -243,9 +239,7 @@ class HashDatabase:
     async def count(self) -> int:
         """Return the total number of stored hashes."""
         assert self._db is not None
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM malware_hashes"
-        ) as cur:
+        async with self._db.execute("SELECT COUNT(*) FROM malware_hashes") as cur:
             row = await cur.fetchone()
         return row[0] if row else 0
 
