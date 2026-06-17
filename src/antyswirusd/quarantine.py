@@ -179,10 +179,15 @@ class Quarantine:
         # check.
         qid = uuid.uuid4().hex
         stored = self._stored_path(qid, _safe_basename(result.path))
+        self._dir.mkdir(parents=True, exist_ok=True)
         try:
             await asyncio.to_thread(shutil.move, str(result.path), str(stored))
         except FileNotFoundError:
             raise FileNotFoundError(result.path) from None
+        except OSError as exc:
+            raise OSError(
+                f"Failed to quarantine {result.path} -> {stored}: {exc}"
+            ) from exc
         await self._db.execute(
             """
             INSERT INTO entries(

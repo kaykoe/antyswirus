@@ -143,10 +143,6 @@ class LookupWorker:
             hit = await self._hash_repo.lookup_by_hash(content_hash)
             result = ScanResult(path=req.path, verdict=hit.verdict, detail=hit.detail)
 
-        await self._cache.record(
-            req.path, req.fingerprint, result.verdict, content_hash
-        )
-
         if result.verdict is Verdict.MALICIOUS:
             qid = await self._quarantine.quarantine(result)
             log.warning(
@@ -155,3 +151,7 @@ class LookupWorker:
                 qid,
                 result.detail or "",
             )
+
+        await self._cache.record(
+            req.path, req.fingerprint, result.verdict, content_hash
+        )
