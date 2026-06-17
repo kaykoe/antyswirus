@@ -202,20 +202,3 @@ __all__ = [
     "run_async",
     "wait_for",
 ]
-
-
-@pytest.fixture(autouse=True)
-def _no_cymru(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent DatabaseHashRepository tests from making live DNS queries to Cymru."""
-
-    async def _noop(_hash: str) -> tuple[bool, str | None]:
-        return False, None
-
-    monkeypatch.setattr("antyswirusd.cymru.lookup", _noop)
-
-
-def pytest_collection_modifyitems(config, items):
-    """Tag async-style tests with a marker for selective runs."""
-    for item in items:
-        if "integration" in item.keywords:
-            continue

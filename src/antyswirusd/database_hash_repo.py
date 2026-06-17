@@ -3,9 +3,7 @@
 Lookup strategy
 ---------------
 1. Query the local database for a MalwareBazaar match.
-2. If no match, query Team Cymru MHR via DNS (live).
-3. If Cymru finds the hash, return ``Verdict.MALICIOUS``.
-   Otherwise return ``Verdict.UNKNOWN``.
+2. If no match, return ``Verdict.UNKNOWN``.
 
 The database is synced from MalwareBazaar by the
 :func:`sync_all <antyswirusd.database_hash_repo.sync_all>` helper.
@@ -25,9 +23,7 @@ log = logging.getLogger(__name__)
 
 
 class DatabaseHashRepository:
-    """``HashRepository`` that queries the local malware hash database
-    and falls back to the Team Cymru Malware Hash Registry (DNS).
-    """
+    """``HashRepository`` that queries the local malware hash database."""
 
     def __init__(self, db: HashDatabase) -> None:
         self._db = db
@@ -45,15 +41,6 @@ class DatabaseHashRepository:
         result = await db.lookup_by_hash(content_hash)
         if result.verdict is Verdict.MALICIOUS:
             return result
-
-        from antyswirusd.cymru import lookup as cymru_lookup
-
-        found, detection = await cymru_lookup(content_hash)
-        if found:
-            return HashLookup(
-                verdict=Verdict.MALICIOUS,
-                detail=f"cymru_detection={detection}" if detection else None,
-            )
         return HashLookup(verdict=Verdict.UNKNOWN)
 
     async def close(self) -> None:
