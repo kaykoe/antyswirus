@@ -184,6 +184,7 @@ class Engine:
                 whitelist=self._whitelist,
                 hash_repo=self._hash_repo,
                 loop=asyncio.get_running_loop(),
+                quarantine_dir=self._paths.quarantine_dir,
             )
             self._monitor.start()
         else:

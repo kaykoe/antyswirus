@@ -91,6 +91,23 @@ _EVENT_META_SIZE = ctypes.sizeof(fanotify_event_metadata)
 _BUF_SIZE = _EVENT_META_SIZE * 64
 
 
+def _resolve(path: Path) -> Path | None:
+    """Resolve *path* to an absolute path, or ``None`` on error."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
+def _is_subpath(child: Path, parent: Path) -> bool:
+    """Return ``True`` when *child* is a descendant of *parent*."""
+    try:
+        child.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 class FanotifyMonitor:
     """Real-time filesystem monitor backed by Linux fanotify.
 
@@ -110,6 +127,7 @@ class FanotifyMonitor:
         whitelist: Whitelist,
         hash_repo,
         loop: asyncio.AbstractEventLoop,
+        quarantine_dir: Path | None = None,
     ) -> None:
         if not watch_roots:
             raise ValueError("at least one watch root is required")
@@ -120,6 +138,11 @@ class FanotifyMonitor:
         self._whitelist = whitelist
         self._hash_repo = hash_repo
         self._loop = loop
+
+        self._resolved_roots = [_resolve(root) for root in self._watch_roots]
+        self._exclude_dirs = (
+            [_resolve(quarantine_dir)] if quarantine_dir is not None else []
+        )
 
         self._fd: int = -1
         self._thread: threading.Thread | None = None
@@ -271,8 +294,37 @@ class FanotifyMonitor:
 
     # -- event handlers ------------------------------------------- #
 
+    def _path_is_allowed(self, path: Path) -> bool:
+        """Check whether *path* should be submitted for scanning.
+
+        Returns ``True`` if *path* sits under one of the configured
+        watch roots AND is not inside an excluded directory (such as
+        the quarantine), so the event is allowed through.
+        """
+        resolved = _resolve(path)
+        if resolved is None:
+            return False
+
+        if not any(
+            root is not None and (resolved == root or _is_subpath(resolved, root))
+            for root in self._resolved_roots
+        ):
+            return False
+
+        if any(
+            ex is not None and (resolved == ex or _is_subpath(resolved, ex))
+            for ex in self._exclude_dirs
+        ):
+            return False
+
+        return True
+
     def _on_close_write(self, path: Path) -> None:
         """A file was closed after being written. Submit it for scanning."""
+        if not self._path_is_allowed(path):
+            log.debug("fanotify: skipped %s (outside watch roots or excluded)", path)
+            return
+
         try:
             st = path.stat()
         except FileNotFoundError:

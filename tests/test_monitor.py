@@ -272,6 +272,130 @@ class TestCloseWrite:
         asyncio.run(go())
 
 
+# ------------------------------------------------------------------ #
+# Path filtering — include root check and exclude dir check
+# ------------------------------------------------------------------ #
+
+
+class TestPathIsAllowed:
+    def test_file_inside_watch_root_is_allowed(self, tmp_path):
+        f = tmp_path / "inside.txt"
+        f.write_text("data")
+        monitor = FanotifyMonitor(
+            MagicMock(),
+            watch_roots=[tmp_path],
+            cache=MagicMock(),
+            whitelist=MagicMock(),
+            hash_repo=MagicMock(),
+            loop=MagicMock(),
+        )
+        assert monitor._path_is_allowed(f) is True
+
+    def test_file_outside_watch_root_is_denied(self, tmp_path):
+        other = tmp_path / "other"
+        other.mkdir()
+        f = other / "outside.txt"
+        f.write_text("data")
+        monitor = FanotifyMonitor(
+            MagicMock(),
+            watch_roots=[tmp_path / "sub"],
+            cache=MagicMock(),
+            whitelist=MagicMock(),
+            hash_repo=MagicMock(),
+            loop=MagicMock(),
+        )
+        assert monitor._path_is_allowed(f) is False
+
+    def test_file_in_quarantine_dir_is_denied(self, tmp_path):
+        quarantine = tmp_path / "quarantine"
+        quarantine.mkdir()
+        f = quarantine / "bad.txt"
+        f.write_text("data")
+        monitor = FanotifyMonitor(
+            MagicMock(),
+            watch_roots=[tmp_path],
+            cache=MagicMock(),
+            whitelist=MagicMock(),
+            hash_repo=MagicMock(),
+            loop=MagicMock(),
+            quarantine_dir=quarantine,
+        )
+        assert monitor._path_is_allowed(f) is False
+
+    def test_file_in_root_outside_quarantine_is_allowed(self, tmp_path):
+        quarantine = tmp_path / "quarantine"
+        quarantine.mkdir()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        f = data_dir / "good.txt"
+        f.write_text("data")
+        monitor = FanotifyMonitor(
+            MagicMock(),
+            watch_roots=[tmp_path],
+            cache=MagicMock(),
+            whitelist=MagicMock(),
+            hash_repo=MagicMock(),
+            loop=MagicMock(),
+            quarantine_dir=quarantine,
+        )
+        assert monitor._path_is_allowed(f) is True
+
+    def test_non_existent_file_inside_root_is_allowed(self, tmp_path):
+        """Path resolution works for non-existent paths under a root."""
+        f = tmp_path / "nonexistent.txt"
+        monitor = FanotifyMonitor(
+            MagicMock(),
+            watch_roots=[tmp_path],
+            cache=MagicMock(),
+            whitelist=MagicMock(),
+            hash_repo=MagicMock(),
+            loop=MagicMock(),
+        )
+        assert monitor._path_is_allowed(f) is True
+
+
+class TestCloseWritePathFiltering:
+    def test_skips_file_outside_watch_roots(self, cache, whitelist, hash_repo, queue, tmp_path):
+        async def go():
+            other = tmp_path / "other"
+            other.mkdir()
+            f = other / "outside.txt"
+            f.write_text("data")
+            loop = asyncio.get_running_loop()
+            monitor = FanotifyMonitor(
+                queue,
+                watch_roots=[tmp_path / "sub"],
+                cache=cache,
+                whitelist=whitelist,
+                hash_repo=hash_repo,
+                loop=loop,
+            )
+            await asyncio.to_thread(monitor._on_close_write, f)
+            queue.put.assert_not_called()
+
+        asyncio.run(go())
+
+    def test_skips_file_in_quarantine_dir(self, cache, whitelist, hash_repo, queue, tmp_path):
+        async def go():
+            quarantine = tmp_path / "quarantine"
+            quarantine.mkdir()
+            f = quarantine / "bad.txt"
+            f.write_text("data")
+            loop = asyncio.get_running_loop()
+            monitor = FanotifyMonitor(
+                queue,
+                watch_roots=[tmp_path],
+                cache=cache,
+                whitelist=whitelist,
+                hash_repo=hash_repo,
+                loop=loop,
+                quarantine_dir=quarantine,
+            )
+            await asyncio.to_thread(monitor._on_close_write, f)
+            queue.put.assert_not_called()
+
+        asyncio.run(go())
+
 
 
 # ------------------------------------------------------------------ #
