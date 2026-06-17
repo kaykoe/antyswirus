@@ -30,10 +30,8 @@ log = logging.getLogger(__name__)
 # ------------------------------------------------------------------ #
 FAN_CLASS_CONTENT = 0x00000004
 FAN_CLOEXEC = 0x00000001
-FAN_NONBLOCK = 0x00000002
 
 FAN_CLOSE_WRITE = 0x00000008
-FAN_EVENT_ON_CHILD = 0x08000000
 
 FAN_MARK_ADD = 0x00000001
 FAN_MARK_MOUNT = 0x00000010
@@ -184,7 +182,7 @@ class FanotifyMonitor:
         libc = _get_libc()
         fd = libc.fanotify_init(
             FAN_CLASS_CONTENT | FAN_CLOEXEC,
-            os.O_RDWR | os.O_LARGEFILE,
+            os.O_RDONLY | os.O_LARGEFILE,
         )
         if fd < 0:
             err = ctypes.get_errno()
@@ -201,7 +199,7 @@ class FanotifyMonitor:
             log.warning("fanotify watch root %s is not a directory; skipped", root)
             return
         libc = _get_libc()
-        mask = FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD
+        mask = FAN_CLOSE_WRITE
         path_bytes = os.fsencode(str(root))
         ret = libc.fanotify_mark(
             self._fd,
@@ -219,7 +217,7 @@ class FanotifyMonitor:
                 err,
             )
         else:
-            log.debug("fanotify mark added on %s (mount)", root)
+            log.info("fanotify mark added on %s (mount)", root)
 
     # -- background event thread ---------------------------------- #
 
@@ -267,6 +265,7 @@ class FanotifyMonitor:
         if meta.mask & FAN_CLOSE_WRITE:
             path = self._event_path(meta.fd)
             if path is not None:
+                log.info("fanotify: FAN_CLOSE_WRITE fd=%d path=%s", meta.fd, path)
                 self._on_close_write(path)
 
     # -- event handlers ------------------------------------------- #
@@ -286,3 +285,4 @@ class FanotifyMonitor:
             self._queue.put(ScanRequest(path=path, fingerprint=fp)),
             self._loop,
         )
+        log.info("fanotify: submitted %s to scan queue", path)
