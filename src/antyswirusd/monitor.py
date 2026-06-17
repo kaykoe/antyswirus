@@ -231,7 +231,9 @@ class FanotifyMonitor:
         while not self._stop_event.is_set():
             try:
                 data = os.read(self._fd, _BUF_SIZE)
-            except OSError:
+            except OSError as exc:
+                if isinstance(exc, BlockingIOError):
+                    continue
                 if not self._stop_event.is_set():
                     log.exception("fanotify read error")
                 break
