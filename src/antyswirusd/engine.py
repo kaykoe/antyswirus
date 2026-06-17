@@ -278,11 +278,6 @@ class Engine:
         """
         if self._syncing:
             raise RuntimeError("scanning is blocked while hash DB sync is in progress")
-        if not self._config.mb_api_key and not self._custom_hash_repo:
-            raise RuntimeError(
-                "MalwareBazaar API key is required for scanning. "
-                "Set ANTYSWIRUS_MB_API_KEY or configure mb_api_key in the TOML config."
-            )
         if not path.exists():
             raise FileNotFoundError(path)
         task = asyncio.create_task(
@@ -340,6 +335,7 @@ class Engine:
             active_scans=base.active_scans,
             pending_rescans=base.pending_rescans,
             real_time_active=base.real_time_active,
+            syncing=base.syncing,
             last_scan_at=last_scan_at,
             quarantine_count=count,
         )
