@@ -23,7 +23,7 @@ Restart=on-failure
 RestartSec=5s
 
 NoNewPrivileges=true
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=false
 PrivateTmp=true
 PrivateDevices=true

@@ -51,8 +51,12 @@ def _notify_quarantined(file_path: str) -> None:
             timeout=5,
             capture_output=True,
         )
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-        pass
+    except FileNotFoundError:
+        log.warning("notify-send not found, skipping notification")
+    except OSError as exc:
+        log.warning("notification failed for %s: %s", file_path, exc)
+    except subprocess.TimeoutExpired:
+        log.warning("notify-send timed out for %s", file_path)
 
 
 @dataclass(slots=True)
