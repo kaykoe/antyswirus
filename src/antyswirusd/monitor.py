@@ -35,7 +35,7 @@ FAN_CLASS_CONTENT = 0x00000004
 FAN_CLOEXEC = 0x00000001
 FAN_NONBLOCK = 0x00000002
 
-FAN_OPEN_PERM = 0x00020000
+FAN_OPEN_PERM = 0x00010000
 FAN_CLOSE_WRITE = 0x00000008
 FAN_EVENT_ON_CHILD = 0x08000000
 
@@ -198,7 +198,7 @@ class FanotifyMonitor:
 
     def _init_fanotify(self) -> int:
         libc = _get_libc()
-        fd = libc.fanotify_init(FAN_CLASS_CONTENT, FAN_CLOEXEC | FAN_NONBLOCK)
+        fd = libc.fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK, 0)
         if fd < 0:
             err = ctypes.get_errno()
             log.warning(
