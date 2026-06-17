@@ -272,7 +272,12 @@ class FanotifyMonitor:
         if meta.mask & FAN_CLOSE_WRITE:
             path = self._event_path(meta.fd)
             if path is not None:
+                log.info("fanotify: FAN_CLOSE_WRITE fd=%d path=%s", meta.fd, path)
                 self._on_close_write(path)
+            else:
+                log.info("fanotify: FAN_CLOSE_WRITE fd=%d could not resolve path", meta.fd)
+        else:
+            log.info("fanotify: ignored event mask=%#x fd=%d pid=%d", meta.mask, meta.fd, meta.pid)
 
     # -- event handlers ------------------------------------------- #
 
