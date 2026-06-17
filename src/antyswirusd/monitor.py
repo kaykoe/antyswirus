@@ -286,6 +286,9 @@ class FanotifyMonitor:
                 self._on_close_write(path)
 
         if meta.mask & FAN_OPEN_PERM:
+            if meta.pid == os.getpid():
+                self._respond(meta.fd, Verdict.SAFE)
+                return
             path = self._event_path(meta.fd)
             if path is not None:
                 verdict = self._on_open_perm(path)
