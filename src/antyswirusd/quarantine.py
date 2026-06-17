@@ -55,7 +55,6 @@ import asyncio
 import logging
 import os
 import shutil
-import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -96,32 +95,6 @@ def _safe_basename(path: Path) -> str:
     name = path.name
     cleaned = name.replace("\x00", "").strip()
     return cleaned or "file"
-
-
-async def _ensure_writable(path: Path) -> tuple[int, bool]:
-    """Ensure *path* is owner-writable.
-
-    Returns ``(original_mode, was_changed)`` so the caller can restore
-    the original permissions after the operation completes.
-    """
-    st = await asyncio.to_thread(os.stat, path)
-    mode = st.st_mode
-    if mode & stat.S_IWUSR:
-        return mode, False
-    await asyncio.to_thread(os.chmod, path, mode | stat.S_IWUSR)
-    return mode, True
-
-
-@dataclass(slots=True)
-class _StoredFile:
-    """The on-disk location of a quarantined file."""
-
-    qid: str
-    stored_name: str
-
-    @property
-    def path(self) -> Path:
-        raise NotImplementedError
 
 
 class Quarantine:
@@ -191,20 +164,32 @@ class Quarantine:
         stored = self._stored_path(qid, _safe_basename(result.path))
         self._dir.mkdir(parents=True, exist_ok=True)
 
-        # Temporarily grant owner-write on the source so the move
-        # succeeds even for read-only files.
-        orig_mode, changed = await _ensure_writable(result.path)
+        # Copy file to quarantine (containment is the primary goal).
         try:
-            await asyncio.to_thread(shutil.move, str(result.path), str(stored))
+            await asyncio.to_thread(shutil.copy2, str(result.path), str(stored))
         except FileNotFoundError:
             raise FileNotFoundError(result.path) from None
         except OSError as exc:
             raise OSError(
                 f"Failed to quarantine {result.path} -> {stored}: {exc}"
             ) from exc
-        else:
-            if changed:
-                await asyncio.to_thread(os.chmod, stored, orig_mode)
+
+        # Best-effort: remove the source. If this fails (e.g. read-only
+        # filesystem, cross-device move, permissions) the file is still
+        # safely contained in quarantine.
+        try:
+            await asyncio.to_thread(os.unlink, str(result.path))
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log.warning(
+                "quarantined %s (%s) but could not remove source from "
+                "original location: %s",
+                result.path,
+                qid,
+                exc,
+            )
+
         await self._db.execute(
             """
             INSERT INTO entries(
@@ -246,16 +231,23 @@ class Quarantine:
         if await asyncio.to_thread(original.exists):
             raise FileExistsError(original)
 
-        orig_mode, changed = await _ensure_writable(stored)
+        # Copy back to original location.
         try:
-            await asyncio.to_thread(shutil.move, str(stored), str(original))
+            await asyncio.to_thread(shutil.copy2, str(stored), str(original))
         except OSError as exc:
             raise OSError(
                 f"Failed to restore {stored} -> {original}: {exc}"
             ) from exc
-        else:
-            if changed:
-                await asyncio.to_thread(os.chmod, original, orig_mode)
+
+        # Best-effort: remove the quarantine copy.
+        try:
+            await asyncio.to_thread(os.unlink, str(stored))
+        except OSError:
+            log.warning(
+                "restored %s but could not remove quarantine copy %s",
+                original,
+                stored,
+            )
 
         await self._db.execute("DELETE FROM entries WHERE qid = ?", (qid,))
         await self._db.commit()
@@ -282,7 +274,6 @@ class Quarantine:
         stored = await asyncio.to_thread(self._find_stored, qid)
         if stored is not None:
             try:
-                await _ensure_writable(stored)
                 await asyncio.to_thread(os.unlink, stored)
             except (FileNotFoundError, OSError):
                 pass
