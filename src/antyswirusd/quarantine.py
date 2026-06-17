@@ -163,31 +163,14 @@ class Quarantine:
         stored = self._stored_path(qid, _safe_basename(result.path))
         self._dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy file to quarantine (containment is the primary goal).
         try:
-            await asyncio.to_thread(shutil.copy2, str(result.path), str(stored))
+            await asyncio.to_thread(shutil.move, str(result.path), str(stored))
         except FileNotFoundError:
             raise FileNotFoundError(result.path) from None
         except OSError as exc:
             raise OSError(
                 f"Failed to quarantine {result.path} -> {stored}: {exc}"
             ) from exc
-
-        # Best-effort: remove the source. If this fails (e.g. read-only
-        # filesystem, cross-device move, permissions) the file is still
-        # safely contained in quarantine.
-        try:
-            await asyncio.to_thread(os.unlink, str(result.path))
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            log.warning(
-                "quarantined %s (%s) but could not remove source from "
-                "original location: %s",
-                result.path,
-                qid,
-                exc,
-            )
 
         await self._db.execute(
             """
@@ -230,23 +213,12 @@ class Quarantine:
         if await asyncio.to_thread(original.exists):
             raise FileExistsError(original)
 
-        # Copy back to original location.
         try:
-            await asyncio.to_thread(shutil.copy2, str(stored), str(original))
+            await asyncio.to_thread(shutil.move, str(stored), str(original))
         except OSError as exc:
             raise OSError(
                 f"Failed to restore {stored} -> {original}: {exc}"
             ) from exc
-
-        # Best-effort: remove the quarantine copy.
-        try:
-            await asyncio.to_thread(os.unlink, str(stored))
-        except OSError:
-            log.warning(
-                "restored %s but could not remove quarantine copy %s",
-                original,
-                stored,
-            )
 
         await self._db.execute("DELETE FROM entries WHERE qid = ?", (qid,))
         await self._db.commit()
