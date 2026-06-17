@@ -55,6 +55,7 @@ import asyncio
 import logging
 import os
 import shutil
+import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -95,6 +96,20 @@ def _safe_basename(path: Path) -> str:
     name = path.name
     cleaned = name.replace("\x00", "").strip()
     return cleaned or "file"
+
+
+async def _ensure_writable(path: Path) -> tuple[int, bool]:
+    """Ensure *path* is owner-writable.
+
+    Returns ``(original_mode, was_changed)`` so the caller can restore
+    the original permissions after the operation completes.
+    """
+    st = await asyncio.to_thread(os.stat, path)
+    mode = st.st_mode
+    if mode & stat.S_IWUSR:
+        return mode, False
+    await asyncio.to_thread(os.chmod, path, mode | stat.S_IWUSR)
+    return mode, True
 
 
 @dataclass(slots=True)
@@ -172,14 +187,13 @@ class Quarantine:
 
     async def quarantine(self, result: ScanResult) -> str:
         assert self._db is not None
-        # ``shutil.move`` is the right primitive: same-fs move is
-        # atomic via ``os.rename``; cross-fs falls back to copy+unlink
-        # so the operation completes. Either way the source goes
-        # away, so we don't need a separate "did the move succeed"
-        # check.
         qid = uuid.uuid4().hex
         stored = self._stored_path(qid, _safe_basename(result.path))
         self._dir.mkdir(parents=True, exist_ok=True)
+
+        # Temporarily grant owner-write on the source so the move
+        # succeeds even for read-only files.
+        orig_mode, changed = await _ensure_writable(result.path)
         try:
             await asyncio.to_thread(shutil.move, str(result.path), str(stored))
         except FileNotFoundError:
@@ -188,6 +202,9 @@ class Quarantine:
             raise OSError(
                 f"Failed to quarantine {result.path} -> {stored}: {exc}"
             ) from exc
+        else:
+            if changed:
+                await asyncio.to_thread(os.chmod, stored, orig_mode)
         await self._db.execute(
             """
             INSERT INTO entries(
@@ -226,12 +243,20 @@ class Quarantine:
             await self._db.commit()
             raise FileNotFoundError(f"quarantined file for {qid} is missing on disk")
         original.parent.mkdir(parents=True, exist_ok=True)
-        # Refuse if the destination is already occupied; ``shutil.move``
-        # would silently overwrite otherwise, which is the wrong
-        # default for a malware-restoration path.
         if await asyncio.to_thread(original.exists):
             raise FileExistsError(original)
-        await asyncio.to_thread(shutil.move, str(stored), str(original))
+
+        orig_mode, changed = await _ensure_writable(stored)
+        try:
+            await asyncio.to_thread(shutil.move, str(stored), str(original))
+        except OSError as exc:
+            raise OSError(
+                f"Failed to restore {stored} -> {original}: {exc}"
+            ) from exc
+        else:
+            if changed:
+                await asyncio.to_thread(os.chmod, original, orig_mode)
+
         await self._db.execute("DELETE FROM entries WHERE qid = ?", (qid,))
         await self._db.commit()
         log.info("restored %s from quarantine %s", original, qid)
@@ -257,8 +282,9 @@ class Quarantine:
         stored = await asyncio.to_thread(self._find_stored, qid)
         if stored is not None:
             try:
+                await _ensure_writable(stored)
                 await asyncio.to_thread(os.unlink, stored)
-            except FileNotFoundError:
+            except (FileNotFoundError, OSError):
                 pass
         await self._db.execute("DELETE FROM entries WHERE qid = ?", (qid,))
         await self._db.commit()
