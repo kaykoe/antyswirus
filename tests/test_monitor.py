@@ -11,13 +11,13 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from antyswirusd.monitor import FanotifyMonitor
 from antyswirusd.queue import LookupQueue, ScanRequest
-from antyswirus_lib.types import FileFingerprint, Verdict
+from antyswirus_lib.types import FileFingerprint
 
 # ------------------------------------------------------------------ #
 # Fixtures
@@ -147,46 +147,6 @@ class TestLifecycle:
 
 
 # ------------------------------------------------------------------ #
-# Fanotify response
-# ------------------------------------------------------------------ #
-
-
-class TestRespond:
-    @pytest.fixture(autouse=True)
-    def _mock_libc(self, monkeypatch):
-        libc = MagicMock()
-        libc.write.return_value = 8  # sizeof(fanotify_response)
-        monkeypatch.setattr("antyswirusd.monitor._get_libc", lambda: libc)
-        return libc
-
-    def test_respond_allow_safe(self, monitor, _mock_libc):
-        monitor._fd = 5
-        monitor._respond(123, Verdict.SAFE)
-        _mock_libc.write.assert_called_once_with(5, ANY, 8)
-
-    def test_respond_allow_whitelisted(self, monitor, _mock_libc):
-        monitor._fd = 5
-        monitor._respond(456, Verdict.WHITELISTED)
-        _mock_libc.write.assert_called_once_with(5, ANY, 8)
-
-    def test_respond_allow_error(self, monitor, _mock_libc):
-        monitor._fd = 5
-        monitor._respond(789, Verdict.ERROR)
-        _mock_libc.write.assert_called_once_with(5, ANY, 8)
-
-    def test_respond_deny_malicious(self, monitor, _mock_libc):
-        monitor._fd = 5
-        monitor._respond(999, Verdict.MALICIOUS)
-        _mock_libc.write.assert_called_once_with(5, ANY, 8)
-
-    def test_respond_logs_write_failure(self, monitor, _mock_libc, caplog):
-        _mock_libc.write.return_value = -1
-        monitor._fd = 5
-        monitor._respond(1, Verdict.SAFE)
-        assert "fanotify response write failed" in caplog.text
-
-
-# ------------------------------------------------------------------ #
 # Event path resolution
 # ------------------------------------------------------------------ #
 
@@ -311,78 +271,6 @@ class TestCloseWrite:
 
         asyncio.run(go())
 
-
-class TestOpenPerm:
-    def test_submits_to_queue_and_returns_safe(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "file.bin"
-            f.write_text("content")
-            st = f.stat()
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            verdict = await asyncio.to_thread(monitor._on_open_perm, f)
-
-            assert verdict is Verdict.SAFE
-            queue.put.assert_called_once()
-            req = queue.put.call_args[0][0]
-            assert isinstance(req, ScanRequest)
-            assert req.path == f
-            assert req.fingerprint == FileFingerprint.from_stat(st)
-
-        asyncio.run(go())
-
-    def test_non_file_returns_safe(self, cache, whitelist, hash_repo, queue, tmp_path):
-        async def go():
-            d = tmp_path / "adir"
-            d.mkdir()
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            verdict = await asyncio.to_thread(monitor._on_open_perm, d)
-
-            assert verdict is Verdict.SAFE
-            queue.put.assert_not_called()
-
-        asyncio.run(go())
-
-    def test_missing_file_returns_safe(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "ghost.bin"
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            verdict = await asyncio.to_thread(monitor._on_open_perm, f)
-
-            assert verdict is Verdict.SAFE
-            queue.put.assert_not_called()
-
-        asyncio.run(go())
 
 
 

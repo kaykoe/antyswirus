@@ -1,9 +1,7 @@
 """Real-time filesystem monitoring via Linux fanotify.
 
 Listens for ``FAN_CLOSE_WRITE`` events on configured roots to
-proactively scan newly created or modified files. Also intercepts
-``FAN_OPEN_PERM`` events to block execution until the scan
-completes.
+proactively scan newly created or modified files.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from antyswirus_lib.types import FileFingerprint, Verdict
+from antyswirus_lib.types import FileFingerprint
 
 from antyswirusd.queue import LookupQueue, ScanRequest
 
@@ -34,12 +32,8 @@ FAN_CLASS_CONTENT = 0x00000004
 FAN_CLOEXEC = 0x00000001
 FAN_NONBLOCK = 0x00000002
 
-FAN_OPEN_PERM = 0x00010000
 FAN_CLOSE_WRITE = 0x00000008
 FAN_EVENT_ON_CHILD = 0x08000000
-
-FAN_ALLOW = 0x01
-FAN_DENY = 0x02
 
 FAN_MARK_ADD = 0x00000001
 FAN_MARK_MOUNT = 0x00000010
@@ -60,13 +54,6 @@ class fanotify_event_metadata(ctypes.Structure):
         ("mask", ctypes.c_uint64),
         ("fd", ctypes.c_int32),
         ("pid", ctypes.c_int32),
-    ]
-
-
-class fanotify_response(ctypes.Structure):
-    _fields_ = [
-        ("fd", ctypes.c_int32),
-        ("response", ctypes.c_uint32),
     ]
 
 
@@ -109,9 +96,7 @@ class FanotifyMonitor:
     """Real-time filesystem monitor backed by Linux fanotify.
 
     Watches directories listed in *watch_roots* and submits new or
-    modified files to the scan queue. Permission events are resolved
-    synchronously: the file is hashed, checked against the whitelist
-    and hash repository, and allowed or denied on the spot.
+    modified files to the scan queue.
 
     Start the monitor with :meth:`start` and stop with :meth:`stop`.
     Once started it runs a background thread.
@@ -216,7 +201,7 @@ class FanotifyMonitor:
             log.warning("fanotify watch root %s is not a directory; skipped", root)
             return
         libc = _get_libc()
-        mask = FAN_OPEN_PERM | FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD
+        mask = FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD
         path_bytes = os.fsencode(str(root))
         ret = libc.fanotify_mark(
             self._fd,
@@ -284,32 +269,6 @@ class FanotifyMonitor:
             if path is not None:
                 self._on_close_write(path)
 
-        if meta.mask & FAN_OPEN_PERM:
-            if meta.pid == os.getpid():
-                self._respond(meta.fd, Verdict.SAFE)
-                return
-            path = self._event_path(meta.fd)
-            if path is not None:
-                verdict = self._on_open_perm(path)
-                self._respond(meta.fd, verdict)
-            else:
-                self._respond(meta.fd, Verdict.SAFE)
-
-    def _respond(self, event_fd: int, verdict: Verdict) -> None:
-        response = fanotify_response(
-            fd=event_fd,
-            response=FAN_ALLOW if verdict is not Verdict.MALICIOUS else FAN_DENY,
-        )
-        libc = _get_libc()
-        written = libc.write(
-            self._fd,
-            ctypes.byref(response),
-            ctypes.sizeof(response),
-        )
-        if written < 0:
-            err = ctypes.get_errno()
-            log.warning("fanotify response write failed (errno=%d)", err)
-
     # -- event handlers ------------------------------------------- #
 
     def _on_close_write(self, path: Path) -> None:
@@ -327,21 +286,3 @@ class FanotifyMonitor:
             self._queue.put(ScanRequest(path=path, fingerprint=fp)),
             self._loop,
         )
-
-    def _on_open_perm(self, path: Path) -> Verdict:
-        """A file is about to be opened. Queue for scanning, allow."""
-        if not path.is_file():
-            return Verdict.SAFE
-        try:
-            st = path.stat()
-        except (FileNotFoundError, PermissionError):
-            return Verdict.SAFE
-        except OSError as exc:
-            log.debug("fanotify: stat failed for %s: %s", path, exc)
-            return Verdict.SAFE
-        fp = FileFingerprint.from_stat(st)
-        asyncio.run_coroutine_threadsafe(
-            self._queue.put(ScanRequest(path=path, fingerprint=fp)),
-            self._loop,
-        )
-        return Verdict.SAFE
