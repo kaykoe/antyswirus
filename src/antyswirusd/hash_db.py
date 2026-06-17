@@ -13,7 +13,6 @@ Schema
         sha256          TEXT PRIMARY KEY,
         source          TEXT NOT NULL,    -- 'malwarebazaar'
         first_seen_utc  TEXT,             -- ISO-8601 datetime from source
-        tags            TEXT,             -- JSON list
         imported_at     REAL NOT NULL     -- unix timestamp of import
     );
     CREATE INDEX idx_hashes_source ON malware_hashes(source);
@@ -21,7 +20,6 @@ Schema
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -37,7 +35,6 @@ CREATE TABLE IF NOT EXISTS malware_hashes (
     sha256          TEXT PRIMARY KEY,
     source          TEXT NOT NULL,
     first_seen_utc  TEXT,
-    tags            TEXT,
     imported_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hashes_source ON malware_hashes(source);
@@ -91,10 +88,11 @@ class HashDatabase:
     # Bulk import helpers (called by sync modules)
     # ------------------------------------------------------------------
 
-    async def import_malwarebazaar_rows(self, rows: list[dict[str, str | None]]) -> int:
+    async def import_malwarebazaar_rows(self, rows: list[list[str | None]]) -> int:
         """Insert/update rows from a MalwareBazaar CSV dump.
 
-        Each dict must have keys: sha256_hash and first_seen_utc.
+        Each row is a positional list where ``row[0]`` is the
+        ``first_seen_utc`` timestamp and ``row[1]`` is the SHA-256 hash.
         MalwareBazaar rows replace any existing entry for the same SHA-256.
 
         Uses ``executemany`` for performance. Returns the number of rows
@@ -103,36 +101,31 @@ class HashDatabase:
         assert self._db is not None
         before = await self._row_count()
         now = time.time()
-        params: list[tuple[str, str | None, str, float]] = []
+        params: list[tuple[str, str | None, float]] = []
         for r in rows:
-            sha256 = r.get("sha256_hash")
+            if len(r) < 2:
+                continue
+            sha256 = r[1]
             if not sha256:
                 continue
-            tags_raw = r.get("tags") or ""
-            tags_json = json.dumps(
-                [t.strip() for t in tags_raw.split(",") if t.strip()]
-            )
             params.append(
                 (
                     sha256,
-                    r.get("first_seen_utc"),
-                    tags_json,
+                    r[0],
                     now,
                 )
             )
         if not params:
-            log.info(f"parsed {len(params)} valid rows")
             return 0
         try:
             await self._db.executemany(
                 """
                 INSERT INTO malware_hashes(
-                    sha256, source, first_seen_utc, tags, imported_at
-                ) VALUES (?, 'malwarebazaar', ?, ?, ?)
+                    sha256, source, first_seen_utc, imported_at
+                ) VALUES (?, 'malwarebazaar', ?, ?)
                 ON CONFLICT(sha256) DO UPDATE SET
                     source          = 'malwarebazaar',
                     first_seen_utc  = COALESCE(excluded.first_seen_utc, malware_hashes.first_seen_utc),
-                    tags            = COALESCE(excluded.tags, malware_hashes.tags),
                     imported_at     = excluded.imported_at
                 """,
                 params,

@@ -37,11 +37,7 @@ class TestDatabaseHashRepository:
             try:
                 await db.import_malwarebazaar_rows(
                     [
-                        {
-                            "sha256_hash": "a" * 64,
-                            "first_seen_utc": "2024-01-01",
-                            "tags": "",
-                        }
+                        ["2024-01-01", "a" * 64],
                     ]
                 )
                 result = await repo.lookup_by_hash("a" * 64)

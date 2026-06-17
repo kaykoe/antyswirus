@@ -32,11 +32,7 @@ class TestHashDatabase:
             try:
                 await db.import_malwarebazaar_rows(
                     [
-                        {
-                            "sha256_hash": "a" * 64,
-                            "first_seen_utc": "2024-01-01",
-                            "tags": "trojan,downloader",
-                        }
+                        ["2024-01-01", "a" * 64],
                     ]
                 )
                 result = await db.lookup_by_hash("a" * 64)
@@ -53,11 +49,7 @@ class TestHashDatabase:
             db = HashDatabase(tmp_path / "hash.db")
             await db.open()
             try:
-                row = {
-                    "sha256_hash": "a" * 64,
-                    "first_seen_utc": "2024-01-01",
-                    "tags": "",
-                }
+                row = ["2024-01-01", "a" * 64]
                 first = await db.import_malwarebazaar_rows([row])
                 second = await db.import_malwarebazaar_rows([row])
                 assert first == 1
@@ -96,16 +88,8 @@ class TestHashDatabase:
 
                 await db.import_malwarebazaar_rows(
                     [
-                        {
-                            "sha256_hash": "a" * 64,
-                            "first_seen_utc": None,
-                            "tags": "",
-                        },
-                        {
-                            "sha256_hash": "b" * 64,
-                            "first_seen_utc": None,
-                            "tags": "",
-                        },
+                        [None, "a" * 64],
+                        [None, "b" * 64],
                     ]
                 )
 
@@ -150,11 +134,7 @@ class TestHashDatabase:
             try:
                 await db.import_malwarebazaar_rows(
                     [
-                        {
-                            "sha256_hash": "a" * 64,
-                            "first_seen_utc": "2024-01-01",
-                            "tags": "",
-                        }
+                        ["2024-01-01", "a" * 64],
                     ]
                 )
                 # SHA-1 lookup should not match (no sha1 column)
