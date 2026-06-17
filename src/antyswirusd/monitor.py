@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 FAN_CLASS_CONTENT = 0x00000004
 FAN_CLOEXEC = 0x00000001
 FAN_NONBLOCK = 0x00000002
+FAN_UNLIMITED_QUEUE = 0x00000010
+FAN_UNLIMITED_MARKS = 0x00000020
 
 FAN_CLOSE_WRITE = 0x00000008
 FAN_EVENT_ON_CHILD = 0x08000000
@@ -183,7 +185,8 @@ class FanotifyMonitor:
     def _init_fanotify(self) -> int:
         libc = _get_libc()
         fd = libc.fanotify_init(
-            FAN_CLASS_CONTENT | FAN_CLOEXEC,
+            FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK
+            | FAN_UNLIMITED_QUEUE | FAN_UNLIMITED_MARKS,
             os.O_RDWR | os.O_LARGEFILE,
         )
         if fd < 0:
@@ -286,3 +289,4 @@ class FanotifyMonitor:
             self._queue.put(ScanRequest(path=path, fingerprint=fp)),
             self._loop,
         )
+        log.info("fanotify: submitted %s to scan queue", path)
