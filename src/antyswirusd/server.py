@@ -347,8 +347,26 @@ class IpcServer:
         qid = self._coerce_qid(args, request_id)
         if isinstance(qid, Response):
             return qid
+        # Hash + whitelist BEFORE restoring, so the file is already
+        # whitelisted when it reappears at its original location and
+        # can't race with the scanner.
+        stored = await self._engine.quarantine.stored_path(qid)
+        if stored is not None:
+            try:
+                content_hash = await asyncio.to_thread(compute_sha256, stored)
+                if content_hash:
+                    await self._engine.whitelist.add(
+                        WhitelistEntry(
+                            kind=WhitelistKind.SHA256,
+                            value=content_hash,
+                            note="auto-whitelisted after restore from quarantine",
+                        )
+                    )
+            except OSError:
+                pass
+
         try:
-            original = await self._engine.quarantine.restore(qid)
+            await self._engine.quarantine.restore(qid)
         except KeyError:
             return Response(
                 id=request_id,
@@ -362,21 +380,6 @@ class IpcServer:
                 status="error",
                 error=f"destination already exists: {dest}",
             )
-
-        # Auto-whitelist the restored file's hash so it doesn't get
-        # re-scanned and re-quarantined.
-        try:
-            content_hash = await asyncio.to_thread(compute_sha256, original)
-            if content_hash:
-                await self._engine.whitelist.add(
-                    WhitelistEntry(
-                        kind=WhitelistKind.SHA256,
-                        value=content_hash,
-                        note="auto-whitelisted after restore from quarantine",
-                    )
-                )
-        except OSError:
-            pass
 
         return Response(
             id=request_id,

@@ -190,7 +190,7 @@ class Quarantine:
         log.warning("quarantined %s as %s (%s)", result.path, qid, result.detail or "")
         return qid
 
-    async def restore(self, qid: str) -> Path:
+    async def restore(self, qid: str) -> None:
         assert self._db is not None
         async with self._db.execute(
             "SELECT original_path FROM entries WHERE qid = ?", (qid,)
@@ -223,7 +223,6 @@ class Quarantine:
         await self._db.execute("DELETE FROM entries WHERE qid = ?", (qid,))
         await self._db.commit()
         log.info("restored %s from quarantine %s", original, qid)
-        return original
 
     def _find_stored(self, qid: str) -> Path | None:
         prefix = f"{qid}__"
@@ -233,6 +232,10 @@ class Quarantine:
                     return self._dir / entry
         except FileNotFoundError:
             return None
+
+    async def stored_path(self, qid: str) -> Path | None:
+        """Return the on-disk path of a quarantined file, or None if missing."""
+        return await asyncio.to_thread(self._find_stored, qid)
         return None
 
     async def delete(self, qid: str) -> None:
