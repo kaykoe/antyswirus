@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from antyswirusd.paths import RuntimePaths
+from antyswirus_lib.paths import RuntimePaths
 
 
 def _kwargs(tmp_path: Path) -> dict:

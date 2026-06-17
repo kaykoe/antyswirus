@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Linux antivirus daemon and CLI"
 readme = "README.md"
 authors = [{ name = "kaykoe" }]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.22.1",
     "textual>=0.80",

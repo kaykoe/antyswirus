@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from antyswirus_lib.client import AntyswirusClient
-from antyswirusd.paths import RuntimePaths
+from antyswirus_lib.paths import RuntimePaths
 
 
 @dataclass(slots=True, frozen=True)

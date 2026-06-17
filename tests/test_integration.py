@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from antyswirusd.config import Config
-from antyswirusd.daemon import is_pid_alive, read_pidfile
+from antyswirus_lib.daemon_helpers import is_pid_alive, read_pidfile
 from antyswirus_lib.client import AntyswirusClient
 from tests.conftest import DaemonProcess, wait_for
 

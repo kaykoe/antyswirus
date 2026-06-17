@@ -11,10 +11,10 @@ from pathlib import Path
 import typer
 from typer import Context
 
-from antyswirus_lib.hashing import compute_sha256
-from antyswirusd.daemon import is_pid_alive, read_pidfile
-from antyswirusd.paths import RuntimePaths
 from antyswirus_lib.client import AntyswirusClient
+from antyswirus_lib.daemon_helpers import is_pid_alive, read_pidfile
+from antyswirus_lib.hashing import compute_sha256
+from antyswirus_lib.paths import RuntimePaths
 
 DEFAULT_CONFIG_PATH = Path("/etc/antyswirus/antyswirusd.toml")
 

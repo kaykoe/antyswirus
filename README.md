@@ -9,8 +9,9 @@ gives you a dashboard, quarantine browser, and whitelist manager.
 
 ## Features
 
-- **Hash-based detection** — SHA-256, SHA-1, and MD5 lookup against a
-  local SQLite database synced from MalwareBazaar and VirusShare.
+- **Hash-based detection** — SHA-256 lookup against a
+  local SQLite database synced from MalwareBazaar, with a
+  Team Cymru Malware Hash Registry DNS fallback.
 - **Real-time protection** — fanotify monitor watches
   `FAN_CLOSE_WRITE` and `FAN_OPEN_PERM` events; blocks malicious
   file access on the spot.
@@ -109,9 +110,9 @@ Run `antyswirus` with no arguments to launch the terminal UI.
    subtrees, and checks the cache for each file.
 3. Files whose fingerprint has changed are hashed (SHA-256) on a
    thread pool and submitted to the lookup workers.
-4. Workers check the whitelist, then query the local hash database
-   (MalwareBazaar first, then VirusShare). Known-malicious files
-   are moved to quarantine.
+4.    Workers check the whitelist, then query the local hash database
+   (MalwareBazaar) with a Team Cymru DNS-based fallback. Known-malicious
+   files are moved to quarantine.
 5. The fanotify monitor watches for `FAN_CLOSE_WRITE` (new/modified
    files) and `FAN_OPEN_PERM` (file access). Close-write events are
    submitted for async scanning. Open-perm events are checked

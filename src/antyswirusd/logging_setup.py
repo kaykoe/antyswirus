@@ -7,7 +7,7 @@ import logging.handlers
 import os
 import sys
 
-from antyswirusd.paths import RuntimePaths
+from antyswirus_lib.paths import RuntimePaths
 
 _FMT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%S%z"

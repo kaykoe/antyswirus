@@ -6,12 +6,8 @@ import os
 from pathlib import Path
 
 
-from antyswirusd.daemon import (
-    is_already_daemon,
-    is_pid_alive,
-    read_pidfile,
-    write_pidfile,
-)
+from antyswirus_lib.daemon_helpers import is_pid_alive, read_pidfile, write_pidfile
+from antyswirusd.daemon import is_already_daemon
 
 
 class TestPidfile:

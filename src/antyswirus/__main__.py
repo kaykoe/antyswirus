@@ -1,5 +1,5 @@
-from antyswirus.app import app
+from antyswirus import main
 
 
 if __name__ == "__main__":
-    app()
+    main()

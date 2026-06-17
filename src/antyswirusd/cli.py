@@ -12,15 +12,11 @@ import typer
 from typer import Context
 
 from antyswirusd.config import Config
-from antyswirusd.daemon import (
-    daemonize,
-    is_pid_alive,
-    read_pidfile,
-    write_pidfile,
-)
+from antyswirus_lib.daemon_helpers import is_pid_alive, read_pidfile, write_pidfile
+from antyswirus_lib.paths import RuntimePaths
+from antyswirusd.daemon import daemonize
 from antyswirusd.engine import Engine
 from antyswirusd.logging_setup import setup_logging
-from antyswirusd.paths import RuntimePaths
 from antyswirus_lib.client import AntyswirusClient
 
 log = logging.getLogger(__name__)

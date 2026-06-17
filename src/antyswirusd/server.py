@@ -33,7 +33,7 @@ class IpcServer:
     def __init__(self, socket_path: Path, engine: "Engine") -> None:
         self._socket_path = socket_path
         self._engine = engine
-        self._server: asyncio.base_events.Server | None = None
+        self._server: asyncio.Server | None = None
         self._active_handlers: set[asyncio.Task[None]] = set()
 
     @property

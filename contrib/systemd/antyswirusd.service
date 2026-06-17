@@ -1,6 +1,6 @@
 [Unit]
 Description=antyswirus daemon
-Documentation=https://github.com/anomalyco/opencode
+Documentation=https://github.com/kaykoe/antyswirus/blob/main/README.md
 After=local-fs.target
 ConditionPathExists=/var/lib/antyswirus
 
@@ -9,7 +9,7 @@ Type=forking
 PIDFile=/run/antyswirus/antyswirusd.pid
 ExecStart=/usr/bin/antyswirusd start
 ExecStop=/usr/bin/antyswirusd stop
-ExecReload=/usr/bin/antyswirusd stop && /usr/bin/antyswirusd start
+ExecReload=/bin/sh -c '/usr/bin/antyswirusd stop && /usr/bin/antyswirusd start'
 
 RuntimeDirectory=antyswirus
 StateDirectory=antyswirus

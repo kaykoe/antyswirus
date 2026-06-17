@@ -51,6 +51,12 @@ class LookupQueue:
     def __init__(self, *, maxsize: int = 4096) -> None:
         self._queue: asyncio.Queue[ScanRequest | None] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
+        self._dropped: int = 0
+
+    @property
+    def dropped(self) -> int:
+        """Number of items dropped because the queue was full."""
+        return self._dropped
 
     async def put(self, req: ScanRequest) -> None:
         if self._closed:
@@ -64,6 +70,7 @@ class LookupQueue:
         try:
             self._queue.put_nowait(req)
         except asyncio.QueueFull:
+            self._dropped += 1
             log.warning("lookup queue full, dropping %s", req.path)
 
     def task_done(self) -> None:

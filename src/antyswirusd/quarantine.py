@@ -57,7 +57,6 @@ import os
 import shutil
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 
 import aiosqlite
@@ -342,12 +341,27 @@ class Quarantine:
             await self._db.commit()
         # Age-based prune.
         cutoff = time.time() - self._max_age_days * 86400
-        cur = await self._db.execute(
-            "DELETE FROM entries WHERE quarantined_at < ?", (cutoff,)
-        )
-        aged = cur.rowcount
-        if aged:
+
+        # Collect qids before deleting so we can clean up the on-disk files.
+        async with self._db.execute(
+            "SELECT qid FROM entries WHERE quarantined_at < ?", (cutoff,)
+        ) as cur:
+            aged_qids = [row[0] for row in await cur.fetchall()]
+
+        aged = 0
+        if aged_qids:
+            cur = await self._db.execute(
+                "DELETE FROM entries WHERE quarantined_at < ?", (cutoff,)
+            )
+            aged = cur.rowcount
             await self._db.commit()
+            for qid in aged_qids:
+                stored = await asyncio.to_thread(self._find_stored, qid)
+                if stored is not None:
+                    try:
+                        await asyncio.to_thread(os.unlink, stored)
+                    except OSError:
+                        pass
         total = removed + aged
         if total:
             log.info(

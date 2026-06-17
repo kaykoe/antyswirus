@@ -34,7 +34,7 @@ from antyswirusd.config import Config
 from antyswirusd.database_hash_repo import DatabaseHashRepository, sync_all
 from antyswirusd.hash_db import HashDatabase
 from antyswirusd.monitor import FanotifyMonitor
-from antyswirusd.paths import RuntimePaths
+from antyswirus_lib.paths import RuntimePaths
 from antyswirusd.queue import LookupQueue, LookupWorker, ScanRequest
 from antyswirusd.quarantine import Quarantine
 from antyswirusd.scanner import WalkScanner
@@ -260,7 +260,7 @@ class Engine:
 
         # 7. Stop the real-time monitor.
         if self._monitor is not None:
-            self._monitor.stop()
+            await asyncio.to_thread(self._monitor.stop)
             self._monitor = None
 
         await self._cache.close()

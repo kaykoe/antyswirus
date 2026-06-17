@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from antyswirusd.config import Config
-from antyswirusd.paths import RuntimePaths
+from antyswirus_lib.paths import RuntimePaths
 
 
 def make_paths(root: Path) -> RuntimePaths:
