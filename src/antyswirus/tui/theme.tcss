@@ -59,15 +59,7 @@ Screen {
     text-style: bold;
 }
 
-#progress-wrap {
-    height: 1;
-    width: 60;
-    align-horizontal: center;
-}
 
-#progress-wrap > ProgressBar {
-    width: 60;
-}
 
 #keybind-bar {
     dock: bottom;

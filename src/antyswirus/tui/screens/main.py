@@ -7,15 +7,11 @@ Layout (top to bottom)::
     [spacer]
     [info block: last scan / database / status / quarantine]
     [spacer]
-    [indeterminate progress bar (only if a scan is active)]
-    [spacer]
     [keybind bar]  -- docked to bottom by CSS
 
 The info block is a small ``Vertical`` of ``Horizontal`` rows, one
 per stat, with a :class:`DotFiller` between the label and the value
-so the dots track the screen width on resize. The progress bar is
-centered horizontally and its width is capped at the same width as
-the info block.
+so the dots track the screen width on resize.
 """
 
 from __future__ import annotations
@@ -26,9 +22,9 @@ from typing import Optional
 
 
 from textual.app import ComposeResult
-from textual.containers import Center, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import ProgressBar, Static
+from textual.widgets import Static
 
 from antyswirus.tui.client import StatusProvider, StatusSnapshot
 from antyswirus.tui.screens.quarantine import QuarantineScreen
@@ -102,8 +98,6 @@ class MainScreen(Screen[None]):
             yield _StatRow("Status")
             yield _StatRow("Quarantine")
             yield _StatRow("Real-time monitor")
-        with Center(id="progress-wrap"):
-            yield ProgressBar(total=None, show_eta=False, id="progress")
         yield KeybindBar(
             [
                 ("s", "run scan"),
@@ -140,8 +134,6 @@ class MainScreen(Screen[None]):
         stat_rows = [w for w in self.walk_children(_StatRow)]
         for row in stat_rows:
             row.set_value("daemon unreachable")
-        # Hide the progress bar.
-        self._set_progress_visible(False)
 
     def _render_snapshot(self, snap: StatusSnapshot) -> None:
         now = time.time()
@@ -165,20 +157,6 @@ class MainScreen(Screen[None]):
             stat_rows[2].set_value(status_text, highlight=up_to_date)
             stat_rows[3].set_value(quarantine_text)
             stat_rows[4].set_value(rt_text, highlight=snap.real_time_active)
-
-        self._set_progress_visible(snap.active_scans > 0)
-
-    def _set_progress_visible(self, visible: bool) -> None:
-        try:
-            bar = self.query_one("#progress", ProgressBar)
-            wrap = self.query_one("#progress-wrap")
-        except Exception:
-            return
-        if visible:
-            bar.indeterminate = True
-            wrap.display = True
-        else:
-            wrap.display = False
 
     # ------------------------------------------------------------------ #
     # Actions                                                             #

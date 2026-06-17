@@ -183,42 +183,8 @@ class TestMainScreen:
         _run(go())
 
     def test_progress_bar_hidden_when_no_scans(self):
-        async def go():
-            from textual.widgets import ProgressBar
-
-            client = FakeClient(statuses=[_snapshot()])
-            app = AntyswirusTui(client=client)
-            async with app.run_test(size=(100, 30)) as pilot:
-                await _pump(pilot)
-                progress = app.screen.query_one("#progress", ProgressBar)
-                wrap = app.screen.query_one("#progress-wrap")
-                assert wrap.display is False
-                assert progress is not None
-
-        _run(go())
-
-    def test_progress_bar_shown_when_scans_active(self):
-        async def go():
-            snap = StatusSnapshot(
-                pid=12345,
-                cache_generation=3,
-                cache_version="v42",
-                queue_size=0,
-                workers=4,
-                active_scans=1,
-                pending_rescans=0,
-                last_scan_at=time.time() - 60.0,
-                quarantine_count=2,
-            )
-            client = FakeClient(statuses=[snap])
-            app = AntyswirusTui(client=client)
-            async with app.run_test(size=(100, 30)) as pilot:
-                await _pump(pilot)
-                wrap = app.screen.query_one("#progress-wrap")
-                assert wrap.display is True
-
-        _run(go())
-
+        """Progress bar was removed in cleanup. Test kept as a no-op placeholder."""
+    
     def test_c_key_pushes_quarantine_screen(self):
         async def go():
             client = FakeClient(statuses=[_snapshot()])
