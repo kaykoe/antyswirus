@@ -15,6 +15,10 @@ RuntimeDirectory=antyswirus
 StateDirectory=antyswirus
 LogsDirectory=antyswirus
 
+# Desktop notifications (adjust DISPLAY and UID to match your session)
+Environment=DISPLAY=:0
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
 Restart=on-failure
 RestartSec=5s
 

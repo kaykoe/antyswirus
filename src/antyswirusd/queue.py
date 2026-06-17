@@ -15,12 +15,14 @@ Worker flow per request:
        If yes, record ``WHITELISTED`` and skip the malware-DB call.
     3. Otherwise, ask the ``HashRepository`` for a verdict by hash.
     4. Record the verdict in the cache; quarantine on ``MALICIOUS``.
+    5. Send a desktop notification when a file is quarantined.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -35,6 +37,22 @@ if TYPE_CHECKING:
     from antyswirusd.cache import ScanCache
 
 log = logging.getLogger(__name__)
+
+
+def _notify_quarantined(file_path: str) -> None:
+    try:
+        subprocess.run(
+            [
+                "notify-send",
+                "--urgency=critical",
+                "File Quarantined",
+                f"A file has been quarantined:\n{file_path}",
+            ],
+            timeout=5,
+            capture_output=True,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
 
 
 @dataclass(slots=True)
@@ -152,6 +170,7 @@ class LookupWorker:
 
         if result.verdict is Verdict.MALICIOUS:
             qid = await self._quarantine.quarantine(result)
+            await asyncio.to_thread(_notify_quarantined, str(req.path))
             log.warning(
                 "quarantined %s as %s (%s)",
                 req.path,
