@@ -17,7 +17,6 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from antyswirus_lib.hashing import compute_sha256
 from antyswirus_lib.types import FileFingerprint, Verdict
 
 from antyswirusd.queue import LookupQueue, ScanRequest
@@ -313,20 +312,8 @@ class FanotifyMonitor:
 
     # -- event handlers ------------------------------------------- #
 
-    def _run_async(self, coro, timeout: float = 30):
-        """Schedule coroutine on the event loop and return its result."""
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=timeout)
-
     def _on_close_write(self, path: Path) -> None:
         """A file was closed after being written. Submit it for scanning."""
-        try:
-            is_whitelisted = self._run_async(self._whitelist.matches_directory(path))
-        except Exception:
-            is_whitelisted = False
-        if is_whitelisted:
-            return
-
         try:
             st = path.stat()
         except FileNotFoundError:
@@ -342,45 +329,19 @@ class FanotifyMonitor:
         )
 
     def _on_open_perm(self, path: Path) -> Verdict:
-        """A file is about to be opened. Scan synchronously, allow/deny."""
+        """A file is about to be opened. Queue for scanning, allow."""
         if not path.is_file():
             return Verdict.SAFE
-
-        try:
-            content_hash = compute_sha256(path)
-        except (PermissionError, IsADirectoryError, FileNotFoundError):
-            return Verdict.SAFE
-        except OSError as exc:
-            log.debug("fanotify: hash failed for %s: %s", path, exc)
-            return Verdict.ERROR
-
-        try:
-            is_wl = self._run_async(self._whitelist.is_hash_whitelisted(content_hash))
-        except Exception:
-            is_wl = False
-        if is_wl:
-            self._record_cache(path, content_hash, Verdict.WHITELISTED)
-            return Verdict.WHITELISTED
-
-        try:
-            hit = self._run_async(self._hash_repo.lookup_by_hash(content_hash))
-        except Exception as exc:
-            log.warning("fanotify: hash lookup failed for %s: %s", path, exc)
-            self._record_cache(path, content_hash, Verdict.ERROR)
-            return Verdict.SAFE
-
-        self._record_cache(path, content_hash, hit.verdict)
-        return hit.verdict
-
-    # -- async db helpers (called via _run_async on the event loop) #
-
-    def _record_cache(self, path: Path, content_hash: str, verdict: Verdict) -> None:
         try:
             st = path.stat()
-        except OSError:
-            return
+        except (FileNotFoundError, PermissionError):
+            return Verdict.SAFE
+        except OSError as exc:
+            log.debug("fanotify: stat failed for %s: %s", path, exc)
+            return Verdict.SAFE
         fp = FileFingerprint.from_stat(st)
-        try:
-            self._run_async(self._cache.record(path, fp, verdict, content_hash))
-        except Exception as exc:
-            log.debug("fanotify: cache record error: %s", exc)
+        asyncio.run_coroutine_threadsafe(
+            self._queue.put(ScanRequest(path=path, fingerprint=fp)),
+            self._loop,
+        )
+        return Verdict.SAFE

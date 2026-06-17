@@ -17,7 +17,7 @@ import pytest
 
 from antyswirusd.monitor import FanotifyMonitor
 from antyswirusd.queue import LookupQueue, ScanRequest
-from antyswirus_lib.types import FileFingerprint, HashLookup, Verdict
+from antyswirus_lib.types import FileFingerprint, Verdict
 
 # ------------------------------------------------------------------ #
 # Fixtures
@@ -260,7 +260,6 @@ class TestCloseWrite:
                 hash_repo=hash_repo,
                 loop=loop,
             )
-            whitelist.matches_directory = AsyncMock(return_value=False)
 
             await asyncio.to_thread(monitor._on_close_write, f)
 
@@ -269,29 +268,6 @@ class TestCloseWrite:
             assert isinstance(req, ScanRequest)
             assert req.path == f
             assert req.fingerprint == FileFingerprint.from_stat(st)
-
-        asyncio.run(go())
-
-    def test_skip_whitelisted_directory(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "test.txt"
-            f.write_text("hello")
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-            whitelist.matches_directory = AsyncMock(return_value=True)
-
-            await asyncio.to_thread(monitor._on_close_write, f)
-
-            queue.put.assert_not_called()
 
         asyncio.run(go())
 
@@ -307,7 +283,6 @@ class TestCloseWrite:
                 hash_repo=hash_repo,
                 loop=loop,
             )
-            whitelist.matches_directory = AsyncMock(return_value=False)
 
             await asyncio.to_thread(monitor._on_close_write, f)
 
@@ -328,7 +303,6 @@ class TestCloseWrite:
                 hash_repo=hash_repo,
                 loop=loop,
             )
-            whitelist.matches_directory = AsyncMock(return_value=False)
 
             with patch.object(Path, "stat", side_effect=PermissionError("denied")):
                 await asyncio.to_thread(monitor._on_close_write, f)
@@ -339,12 +313,13 @@ class TestCloseWrite:
 
 
 class TestOpenPerm:
-    def test_whitelisted_hash_returns_whitelisted(
+    def test_submits_to_queue_and_returns_safe(
         self, cache, whitelist, hash_repo, queue, tmp_path
     ):
         async def go():
-            f = tmp_path / "safe.bin"
-            f.write_text("safe content")
+            f = tmp_path / "file.bin"
+            f.write_text("content")
+            st = f.stat()
             loop = asyncio.get_running_loop()
             monitor = FanotifyMonitor(
                 queue,
@@ -354,61 +329,15 @@ class TestOpenPerm:
                 hash_repo=hash_repo,
                 loop=loop,
             )
-            whitelist.is_hash_whitelisted = AsyncMock(return_value=True)
 
             verdict = await asyncio.to_thread(monitor._on_open_perm, f)
 
-            assert verdict is Verdict.WHITELISTED
-
-        asyncio.run(go())
-
-    def test_malicious_hash_returns_malicious(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "evil.bin"
-            f.write_text("malicious content")
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-            whitelist.is_hash_whitelisted = AsyncMock(return_value=False)
-            hash_repo.lookup_by_hash = AsyncMock(
-                return_value=HashLookup(verdict=Verdict.MALICIOUS, detail="sig")
-            )
-
-            verdict = await asyncio.to_thread(monitor._on_open_perm, f)
-
-            assert verdict is Verdict.MALICIOUS
-
-        asyncio.run(go())
-
-    def test_hash_lookup_error_returns_safe(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "unknown.bin"
-            f.write_text("unknown")
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-            whitelist.is_hash_whitelisted = AsyncMock(return_value=False)
-            hash_repo.lookup_by_hash = AsyncMock(side_effect=RuntimeError("repo down"))
-
-            verdict = await asyncio.to_thread(monitor._on_open_perm, f)
-
-            assert verdict is Verdict.SAFE  # fail open
+            assert verdict is Verdict.SAFE
+            queue.put.assert_called_once()
+            req = queue.put.call_args[0][0]
+            assert isinstance(req, ScanRequest)
+            assert req.path == f
+            assert req.fingerprint == FileFingerprint.from_stat(st)
 
         asyncio.run(go())
 
@@ -429,6 +358,7 @@ class TestOpenPerm:
             verdict = await asyncio.to_thread(monitor._on_open_perm, d)
 
             assert verdict is Verdict.SAFE
+            queue.put.assert_not_called()
 
         asyncio.run(go())
 
@@ -450,77 +380,10 @@ class TestOpenPerm:
             verdict = await asyncio.to_thread(monitor._on_open_perm, f)
 
             assert verdict is Verdict.SAFE
+            queue.put.assert_not_called()
 
         asyncio.run(go())
 
-    def test_hash_permission_error_returns_safe(
-        self, cache, whitelist, hash_repo, queue, tmp_path
-    ):
-        async def go():
-            f = tmp_path / "nope.bin"
-            f.write_text("data")
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            with patch("antyswirusd.monitor.compute_sha256") as hasher:
-                hasher.side_effect = PermissionError("no access")
-                verdict = await asyncio.to_thread(monitor._on_open_perm, f)
-
-            assert verdict is Verdict.SAFE
-
-        asyncio.run(go())
-
-
-class TestRecordCache:
-    def test_records_verdict(self, cache, whitelist, hash_repo, queue, tmp_path):
-        async def go():
-            f = tmp_path / "recorded.txt"
-            f.write_text("data")
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            await asyncio.to_thread(monitor._record_cache, f, "abc123", Verdict.SAFE)
-
-            cache.record.assert_called_once()
-            args = cache.record.call_args[0]
-            assert args[0] == f
-            assert args[2] is Verdict.SAFE
-            assert args[3] == "abc123"
-
-        asyncio.run(go())
-
-    def test_missing_file_skipped(self, cache, whitelist, hash_repo, queue, tmp_path):
-        async def go():
-            f = tmp_path / "ghost.txt"
-            loop = asyncio.get_running_loop()
-            monitor = FanotifyMonitor(
-                queue,
-                watch_roots=[tmp_path],
-                cache=cache,
-                whitelist=whitelist,
-                hash_repo=hash_repo,
-                loop=loop,
-            )
-
-            await asyncio.to_thread(monitor._record_cache, f, "abc123", Verdict.SAFE)
-
-            cache.record.assert_not_called()
-
-        asyncio.run(go())
 
 
 # ------------------------------------------------------------------ #
