@@ -35,6 +35,7 @@ FAN_CLOSE_WRITE = 0x00000008
 
 FAN_MARK_ADD = 0x00000001
 FAN_MARK_MOUNT = 0x00000010
+FAN_MARK_FILESYSTEM = 0x00000100
 
 AT_FDCWD = -100
 
@@ -203,7 +204,7 @@ class FanotifyMonitor:
         path_bytes = os.fsencode(str(root))
         ret = libc.fanotify_mark(
             self._fd,
-            FAN_MARK_ADD | FAN_MARK_MOUNT,
+            FAN_MARK_ADD | FAN_MARK_FILESYSTEM,
             mask,
             AT_FDCWD,
             path_bytes,
@@ -217,7 +218,7 @@ class FanotifyMonitor:
                 err,
             )
         else:
-            log.info("fanotify mark added on %s (mount)", root)
+            log.info("fanotify mark added on %s (filesystem)", root)
 
     # -- background event thread ---------------------------------- #
 
