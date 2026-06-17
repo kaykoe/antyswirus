@@ -198,7 +198,10 @@ class FanotifyMonitor:
 
     def _init_fanotify(self) -> int:
         libc = _get_libc()
-        fd = libc.fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK, 0)
+        fd = libc.fanotify_init(
+            FAN_CLASS_CONTENT | FAN_CLOEXEC,
+            os.O_RDWR | os.O_LARGEFILE,
+        )
         if fd < 0:
             err = ctypes.get_errno()
             log.warning(
