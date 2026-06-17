@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from antyswirus_lib.hashing import compute_sha256
 from antyswirus_lib.ipc import (
     ProtocolError,
     Response,
@@ -347,7 +348,7 @@ class IpcServer:
         if isinstance(qid, Response):
             return qid
         try:
-            await self._engine.quarantine.restore(qid)
+            original = await self._engine.quarantine.restore(qid)
         except KeyError:
             return Response(
                 id=request_id,
@@ -361,6 +362,22 @@ class IpcServer:
                 status="error",
                 error=f"destination already exists: {dest}",
             )
+
+        # Auto-whitelist the restored file's hash so it doesn't get
+        # re-scanned and re-quarantined.
+        try:
+            content_hash = await asyncio.to_thread(compute_sha256, original)
+            if content_hash:
+                await self._engine.whitelist.add(
+                    WhitelistEntry(
+                        kind=WhitelistKind.SHA256,
+                        value=content_hash,
+                        note="auto-whitelisted after restore from quarantine",
+                    )
+                )
+        except OSError:
+            pass
+
         return Response(
             id=request_id,
             status="ok",
